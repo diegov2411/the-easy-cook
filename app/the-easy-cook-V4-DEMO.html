@@ -42,6 +42,8 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
 .slide-up{animation:slideUp .28s ease both}
 .fade-in{animation:fadeIn .2s ease both}
+.ec-card-clickable{transition:border-color .15s ease, transform .15s ease}
+.ec-card-clickable:hover{border-color:var(--border2)!important;transform:translateY(-1px)}
 
 /* ── DESKTOP LAYOUT (≥769px) ─────────────────────────────────────────── */
 @media(min-width:769px){
@@ -17397,9 +17399,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.1";
+const APP_VERSION = "4.6.2";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.2", date:"Jul 2026", notes:"Sprint 15c: Arreglado un detalle visual — al pasar el mouse por encima de las tarjetas (insumos, recetas y similares) a veces se quedaban resaltadas aunque el cursor ya no estuviera encima. Ahora el resaltado lo maneja el navegador y desaparece apenas quitas el mouse."},
   {v:"4.6.1", date:"Jul 2026", notes:"Sprint 15b: El panel '¿Qué hago hoy?' ahora se puede minimizar (igual que el de Alertas), y ambos arrancan minimizados al abrir el Inicio para que 'Rendimiento de hoy' quede visible de una, sin tener que bajar."},
   {v:"4.6.0", date:"Jul 2026", notes:"Sprint 15: Nuevo panel '¿Qué hago hoy?' en el Inicio — junta en una sola lista, ordenada por urgencia, las tareas accionables del día (comprar insumos con cantidad sugerida, confirmar compras pendientes, recontar stock, subir precios de platos por debajo del objetivo), cada una con un botón que lleva directo al módulo correcto. Las alertas de stock crítico y bajo ahora también sugieren cuánto comprar."},
   {v:"4.5.0", date:"Jul 2026", notes:"Sprint 14: El stock ya puede quedar en negativo cuando la realidad y el sistema se desfasan, en vez de ocultarlo en cero. Agregar un plato sin stock teórico marca esos insumos como 'para recontar' (visible en Alertas e Inventario). Al confirmar una compra, el stock arranca de cero en vez de sumar sobre un negativo — la nueva mercadería no tiene que 'pagar' el desfase anterior."},
@@ -17934,13 +17937,11 @@ const S = {
 
 // ─── BASE COMPONENTS ──────────────────────────────────────────────────────────
 
-function Card({children,style,onClick}){
-  const [hov,setHov]=useState(false);
+function Card({children,style,onClick,className}){
   return h('div',{
     onClick,
-    style:{...S.card,...(onClick&&hov?{borderColor:"var(--border2)",transform:"translateY(-1px)"}:{}),cursor:onClick?"pointer":"default",...style},
-    onMouseEnter:()=>onClick&&setHov(true),
-    onMouseLeave:()=>setHov(false),
+    className:[onClick&&"ec-card-clickable",className].filter(Boolean).join(" ")||undefined,
+    style:{...S.card,cursor:onClick?"pointer":"default",...style},
   },children);
 }
 
