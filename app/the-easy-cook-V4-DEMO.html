@@ -17397,9 +17397,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.5.0";
-const APP_BUILD   = "Sprint 14 — Julio 2026";
+const APP_VERSION = "4.6.0";
+const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.0", date:"Jul 2026", notes:"Sprint 15: Nuevo panel '¿Qué hago hoy?' en el Inicio — junta en una sola lista, ordenada por urgencia, las tareas accionables del día (comprar insumos con cantidad sugerida, confirmar compras pendientes, recontar stock, subir precios de platos por debajo del objetivo), cada una con un botón que lleva directo al módulo correcto. Las alertas de stock crítico y bajo ahora también sugieren cuánto comprar."},
   {v:"4.5.0", date:"Jul 2026", notes:"Sprint 14: El stock ya puede quedar en negativo cuando la realidad y el sistema se desfasan, en vez de ocultarlo en cero. Agregar un plato sin stock teórico marca esos insumos como 'para recontar' (visible en Alertas e Inventario). Al confirmar una compra, el stock arranca de cero en vez de sumar sobre un negativo — la nueva mercadería no tiene que 'pagar' el desfase anterior."},
   {v:"4.4.0", date:"Jul 2026", notes:"Sprint 13: En Ventas, los platos sin stock teórico suficiente ya no están bloqueados — se pueden seguir agregando al pedido, con una confirmación antes de hacerlo, ya que el stock real de cocina puede diferir del registrado en el sistema."},
   {v:"4.3.1", date:"Jul 2026", notes:"Sprint 12b: Ayudas 'ⓘ' también en Resumen Mensual — explican cada variación vs el mes anterior y por qué a veces una flecha hacia abajo es la señal buena (costo de alimentos, mermas, compras)."},
@@ -18181,7 +18182,8 @@ function AlertCenter({
     title:"Stock crítico",
     body:critical.map(p=>{
       const deficit=p.minStock-p.stock;
-      return `${p.name} — ${fmtNum(p.stock)}/${fmtNum(p.minStock)} ${p.unit} (faltan ${fmtNum(deficit)})`;
+      const buy=Math.max(p.minStock*2-p.stock,p.minStock);
+      return `${p.name} — ${fmtNum(p.stock)}/${fmtNum(p.minStock)} ${p.unit} (faltan ${fmtNum(deficit)}) · compra ≈${fmtNum(buy)} ${p.unit}`;
     }),
     actions:[{label:"Ver Stock →",page:"inventory"},{label:"Comprar →",page:"abastecimiento"}]
   });
@@ -18190,7 +18192,10 @@ function AlertCenter({
   if(lowStock.length>0) alerts.push({
     id:"low",severity:"warning",icon:"⚠️",
     title:`${lowStock.length} ingrediente${lowStock.length!==1?"s":""} con stock bajo`,
-    body:lowStock.map(p=>`${p.name} — ${fmtNum(p.stock)} ${p.unit} (mín ${fmtNum(p.minStock)})`),
+    body:lowStock.map(p=>{
+      const buy=Math.max(p.minStock*2-p.stock,p.minStock);
+      return `${p.name} — ${fmtNum(p.stock)} ${p.unit} (mín ${fmtNum(p.minStock)}) · compra ≈${fmtNum(buy)} ${p.unit}`;
+    }),
     actions:[{label:"Ver Stock →",page:"inventory"}]
   });
 
@@ -18382,6 +18387,81 @@ function AlertCenter({
 }
 
 
+function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricingAlerts,products,setPage}){
+  const tasks=[];
+  critical.forEach(p=>{
+    const buy=Math.max(p.minStock*2-p.stock,p.minStock);
+    tasks.push({key:"crit-"+p.id,prio:1,icon:"🔴",
+      text:`Compra ≈${fmtNum(buy)} ${p.unit} de ${p.name}`,
+      sub:"Stock crítico — se te está acabando",
+      action:{label:"Comprar →",page:"abastecimiento"}});
+  });
+  pendingPurchases.forEach(p=>{
+    const prod=products.find(x=>x.id===p.productId);
+    tasks.push({key:"pend-"+(p.id||(p.productId+"-"+p.date)),prio:2,icon:"🛒",
+      text:`Confirma la compra de ${prod?prod.name:"un insumo"}`,
+      sub:`${fmtNum(p.qty)} ${prod?prod.unit:""} · ${fmtCost(p.totalCost)}`,
+      action:{label:"Ver Compras →",page:"abastecimiento"}});
+  });
+  needsRecount.forEach(p=>{
+    tasks.push({key:"rec-"+p.id,prio:3,icon:"🔢",
+      text:`Cuenta el stock real de ${p.name}`,
+      sub:"El sistema y la cocina pueden estar desfasados",
+      action:{label:"Contar →",page:"inventory"}});
+  });
+  pricingAlerts.forEach(r=>{
+    tasks.push({key:"price-"+r.id,prio:4,icon:"💸",
+      text:r.suggestedGross?`Sube ${r.name} a ${fmtCost(r.suggestedGross)}`:`Revisa el precio de ${r.name}`,
+      sub:`Costo ${fmtPct(r.costPct)} — por encima de tu objetivo`,
+      action:{label:"Ver Recetas →",page:"recipes"}});
+  });
+  lowStock.forEach(p=>{
+    const buy=Math.max(p.minStock*2-p.stock,p.minStock);
+    tasks.push({key:"low-"+p.id,prio:5,icon:"⚠️",
+      text:`Compra ≈${fmtNum(buy)} ${p.unit} de ${p.name} esta semana`,
+      sub:"Stock bajo",
+      action:{label:"Comprar →",page:"abastecimiento"}});
+  });
+  tasks.sort((a,b)=>a.prio-b.prio);
+  const MAX=6;
+  const shown=tasks.slice(0,MAX);
+  const extra=tasks.length-shown.length;
+  return h('div',{style:{
+    background:"var(--surface)",border:"1px solid var(--border2)",
+    borderRadius:"var(--radius)",overflow:"hidden",marginBottom:16
+  }},
+    h('div',{style:{display:"flex",alignItems:"center",gap:8,padding:"12px 14px",
+      background:"var(--surface2)",borderBottom:"1px solid var(--border)"}},
+      h('span',{style:{fontSize:16}},"✅"),
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,flex:1}},"¿Qué hago hoy?"),
+      tasks.length>0&&h('span',{style:{fontSize:11,fontWeight:700,color:"var(--accent)",
+        background:"rgba(249,115,22,0.12)",borderRadius:20,padding:"2px 9px"}},
+        tasks.length+" tarea"+(tasks.length!==1?"s":""))
+    ),
+    tasks.length===0
+      ?h('div',{style:{padding:"16px 14px",display:"flex",alignItems:"center",gap:10}},
+        h('span',{style:{fontSize:18}},"🎉"),
+        h('div',{style:{fontSize:13,color:"var(--text2)"}},"Nada urgente por hoy — todo bajo control."))
+      :h('div',{},
+        shown.map((t,i)=>h('div',{key:t.key,style:{
+          display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+          borderBottom:(i<shown.length-1||extra>0)?"1px solid var(--border)":"none"}},
+          h('span',{style:{fontSize:15,flexShrink:0}},t.icon),
+          h('div',{style:{flex:1,minWidth:0}},
+            h('div',{style:{fontSize:13,fontWeight:600,color:"var(--text)"}},t.text),
+            t.sub&&h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},t.sub)),
+          h('button',{onClick:()=>setPage(t.action.page),style:{
+            padding:"5px 10px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
+            border:"1px solid var(--accent)",background:"rgba(249,115,22,0.12)",
+            color:"var(--accent)",whiteSpace:"nowrap",flexShrink:0}},t.action.label)
+        )),
+        extra>0&&h('div',{style:{padding:"8px 14px",fontSize:11,color:"var(--text3)",textAlign:"center"}},
+          "y "+extra+" tarea"+(extra!==1?"s":"")+" más — revisa el detalle abajo")
+      )
+  );
+}
+
+
 function Dashboard({data,setPage,currentUser}){
   const {products,recipes,bom,orders=[],orderLines=[],purchases=[],subBom=[],subRecipes=[],paymentRecons=[],wastageLog=[]}=data;
   const today_date=today();
@@ -18484,6 +18564,12 @@ function Dashboard({data,setPage,currentUser}){
         }},"Sin ventas hoy")
       )
     ),
+
+    // ── ¿QUÉ HAGO HOY? (checklist accionable) ─────────────────────────────────
+    h(TodayChecklist,{
+      critical,lowStock,needsRecount,pendingPurchases,pricingAlerts,
+      products,setPage
+    }),
 
     // ── ALERT CENTER ──────────────────────────────────────────────────────────
     h(AlertCenter,{

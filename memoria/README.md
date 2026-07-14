@@ -21,6 +21,10 @@ y acuerdos, para que ninguna conversación futura pierda el hilo.
 - **Enlace en vivo:** https://diegov2411.github.io/the-easy-cook/ (verificado funcionando).
 - Cuenta de GitHub: `diegov2411`. Rama principal: `master`.
 
-### Tarea pendiente (sin empezar a programar)
-- **Ítem #2 del roadmap:** alertas accionables (Parte A) + checklist "¿Qué hago hoy?" (Parte B).
-- Detalle completo en `../docs/handoff-the-easy-cook.md`, Sección 6.
+### 2026-07-14 — Ítem #2 completado (v4.6.0)
+- **Parte A:** las alertas de stock crítico y bajo ahora sugieren cuánto comprar (≈ mín×2 − actual).
+  Nota: el precio sugerido en platos caros y el ingrediente faltante en platos no disponibles YA existían.
+- **Parte B:** nuevo componente `TodayChecklist` ("¿Qué hago hoy?") en el Dashboard, arriba del AlertCenter.
+  Junta tareas accionables ordenadas por urgencia, cada una con botón que navega al módulo. Datos en vivo.
+- Verificado con `node --check` en ambos archivos y abriendo la demo en el navegador (render correcto).
+- Cambios idénticos en producción y demo. Subido a v4.6.0 con entrada en CHANGELOG.
