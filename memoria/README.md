@@ -28,3 +28,11 @@ y acuerdos, para que ninguna conversación futura pierda el hilo.
   Junta tareas accionables ordenadas por urgencia, cada una con botón que navega al módulo. Datos en vivo.
 - Verificado con `node --check` en ambos archivos y abriendo la demo en el navegador (render correcto).
 - Cambios idénticos en producción y demo. Subido a v4.6.0 con entrada en CHANGELOG.
+
+### 2026-07-14 — Refinamientos v4.6.1 y v4.6.2
+- **v4.6.1:** el panel "¿Qué hago hoy?" ahora es colapsable (igual que Alertas); ambos arrancan
+  minimizados al abrir Inicio para dejar "Rendimiento de hoy" visible sin scroll.
+- **v4.6.2:** arreglado hover pegajoso en las tarjetas (`Card`). Antes el resaltado se calculaba con
+  estado de React (onMouseEnter/Leave) y se quedaba pegado si el navegador no mandaba el evento de
+  salida (scroll, cambio de ventana). Ahora usa CSS `:hover` nativo vía `.ec-card-clickable`.
+  Verificado en vivo: hover pinta border2 + lift; al salir vuelve a border. Sin estado JS que se atore.
