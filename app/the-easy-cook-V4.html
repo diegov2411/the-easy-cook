@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.0";
+const APP_VERSION = "4.7.1";
 const APP_BUILD   = "Sprint 16 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.1", date:"Jul 2026", notes:"Arreglada la Matriz de Menú cuando todavía no hay datos: si no tienes platos, muestra un aviso claro para crear recetas; si tienes platos pero aún no registras ventas, explica que necesita ventas — en vez de un gráfico roto o con posiciones inventadas."},
   {v:"4.7.0", date:"Jul 2026", notes:"Sprint 16: Nuevo arranque para restaurantes nuevos — la app ya no viene con datos de ejemplo de otro restaurante. Abre directo en 'Bienvenido: crea tu cuenta de dueño' (sin perfiles de demostración ni PIN 1234), y después un asistente de primeros pasos te guía a agregar tu primer insumo, crear tu primer plato y fijar tu objetivo de costo e IGV. Todo empieza limpio, sin alertas falsas."},
   {v:"4.6.4", date:"Jul 2026", notes:"Sprint 15e: Se quitó la tira de 'compras pendientes' del Inicio (bajo Estado del inventario), porque esa misma información ya aparece en el panel de Alertas y en '¿Qué hago hoy?' — evitamos repetirla."},
   {v:"4.6.3", date:"Jul 2026", notes:"Sprint 15d: Se activó el resaltado al pasar el mouse (borde naranja) en dos lugares donde estaba escrito pero no funcionaba: las filas de productos en el análisis de consistencia de conteos, y los botones de perfil en la pantalla de acceso."},
@@ -21880,7 +21881,6 @@ function MenuEngineering({data}){
   });
 
   const hasRealData=Object.keys(dishVolume).length>0;
-  const SEED_VOL={R001:38,R002:62,R003:45,R004:20};
 
   const _meSettings=getSettings(data);
   const dishData=recipes.map(r=>{
@@ -21890,7 +21890,7 @@ function MenuEngineering({data}){
     const grossMargin=r.price-fc; // for display alongside gross price
     const costPct=netPrice>0?fc/netPrice*100:0;  // real food cost %
     const costPctGross=r.price>0?fc/r.price*100:0; // legacy gross % (for reference)
-    const volume=hasRealData?(dishVolume[r.id]||0):(SEED_VOL[r.id]||Math.floor(Math.random()*30+5));
+    const volume=dishVolume[r.id]||0;  // real units sold (0 hasta que haya ventas)
     return{...r,fc,netPrice,margin,grossMargin,costPct,costPctGross,volume};
   });
 
@@ -22087,7 +22087,13 @@ function MenuEngineering({data}){
       h('button',{style:tabStyle("sim"),onClick:()=>setTab("sim")},"🔬 Simulador")
     ),
 
-    tab==="matrix"&&h(Fragment,null,
+    tab==="matrix"&&(dishData.length===0
+      ?h(EmptyState,{icon:"🍽",title:"Aún no tienes platos",
+        sub:"Crea tus recetas para analizar tu menú y descubrir qué platos rinden más."})
+      :!hasRealData
+      ?h(EmptyState,{icon:"📊",title:"Aún no hay ventas registradas",
+        sub:"La Matriz de Menú ubica cada plato según su margen y su volumen de ventas. Registra ventas y vuelve aquí para ver tus Estrellas, Enigmas, Bueyes y Perros."})
+      :h(Fragment,null,
       h('div',{style:{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.2)",
         borderRadius:"var(--radius-sm)",padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--text2)",lineHeight:1.6}},
         "Cada plato se posiciona según su ",h('strong',{style:{color:"var(--text)"}},"margen absoluto"),
@@ -22184,7 +22190,7 @@ function MenuEngineering({data}){
           )
         )
       )
-    ),
+    )),
 
     tab==="sim"&&h(Fragment,null,
       h('div',{style:{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",
