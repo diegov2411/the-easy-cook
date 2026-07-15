@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.4";
-const APP_BUILD   = "Sprint 15 — Julio 2026";
+const APP_VERSION = "4.7.0";
+const APP_BUILD   = "Sprint 16 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.0", date:"Jul 2026", notes:"Sprint 16: Nuevo arranque para restaurantes nuevos — la app ya no viene con datos de ejemplo de otro restaurante. Abre directo en 'Bienvenido: crea tu cuenta de dueño' (sin perfiles de demostración ni PIN 1234), y después un asistente de primeros pasos te guía a agregar tu primer insumo, crear tu primer plato y fijar tu objetivo de costo e IGV. Todo empieza limpio, sin alertas falsas."},
   {v:"4.6.4", date:"Jul 2026", notes:"Sprint 15e: Se quitó la tira de 'compras pendientes' del Inicio (bajo Estado del inventario), porque esa misma información ya aparece en el panel de Alertas y en '¿Qué hago hoy?' — evitamos repetirla."},
   {v:"4.6.3", date:"Jul 2026", notes:"Sprint 15d: Se activó el resaltado al pasar el mouse (borde naranja) en dos lugares donde estaba escrito pero no funcionaba: las filas de productos en el análisis de consistencia de conteos, y los botones de perfil en la pantalla de acceso."},
   {v:"4.6.2", date:"Jul 2026", notes:"Sprint 15c: Arreglado un detalle visual — al pasar el mouse por encima de las tarjetas (insumos, recetas y similares) a veces se quedaban resaltadas aunque el cursor ya no estuviera encima. Ahora el resaltado lo maneja el navegador y desaparece apenas quitas el mouse."},
@@ -17451,280 +17452,33 @@ function useChartWidth(fallback=370){
 
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 const INIT = {
-  products:[
-    {id:"P001",name:"Pollo (pechuga)",category:"Carnes",unit:"kg",minStock:5,stock:8.5,avgCost:14.5,yieldPct:70,supplier:"SUP001"},
-    {id:"P002",name:"Lomo de res",category:"Carnes",unit:"kg",minStock:3,stock:4.2,avgCost:42,yieldPct:85,supplier:"SUP001"},
-    {id:"P003",name:"Cebolla",category:"Verduras",unit:"kg",minStock:3,stock:2.3,avgCost:2.5,yieldPct:85,supplier:"SUP002"},
-    {id:"P004",name:"Ajo",category:"Verduras",unit:"kg",minStock:1,stock:1.1,avgCost:9,yieldPct:80,supplier:"SUP002"},
-    {id:"P005",name:"Fettuccine",category:"Secos",unit:"kg",minStock:2,stock:7.0,avgCost:8.5,yieldPct:100,supplier:"SUP003"},
-    {id:"P006",name:"Crema de leche",category:"Lácteos",unit:"L",minStock:2,stock:1.4,avgCost:9.5,yieldPct:100,supplier:"SUP003"},
-    {id:"P007",name:"Parmesano",category:"Lácteos",unit:"kg",minStock:1,stock:2.1,avgCost:48,yieldPct:100,supplier:"SUP003"},
-    {id:"P008",name:"Huevos",category:"Lácteos",unit:"und",minStock:24,stock:36,avgCost:0.75,yieldPct:100,supplier:"SUP003"},
-    {id:"P009",name:"Aceite de oliva",category:"Despensa",unit:"L",minStock:2,stock:1.7,avgCost:32,yieldPct:100,supplier:"SUP003"},
-    {id:"P010",name:"Panceta",category:"Carnes",unit:"kg",minStock:1,stock:0.8,avgCost:38,yieldPct:100,supplier:"SUP001"},
-    {id:"P011",name:"Tomate cherry",category:"Verduras",unit:"kg",minStock:1,stock:3.2,avgCost:7,yieldPct:92,supplier:"SUP002"},
-    {id:"P012",name:"Papa amarilla",category:"Verduras",unit:"kg",minStock:5,stock:4.3,avgCost:2,yieldPct:75,supplier:"SUP002"},
-  ],
-  recipes:[
-    {id:"R001",name:"Lomo Saltado",category:"Fondos",price:47,portions:12},
-    {id:"R002",name:"Fettuccine Carbonara",category:"Pastas",price:37,portions:18},
-    {id:"R003",name:"Pollo al Ajillo",category:"Fondos",price:39,portions:8},
-    {id:"R004",name:"Tiramisú",category:"Postres",price:24,portions:20},
-  ],
-  bom:[
-    {id:"B001",recipeId:"R001",productId:"P002",qty:0.200,unit:"kg"},
-    {id:"B002",recipeId:"R001",productId:"P011",qty:0.080,unit:"kg"},
-    {id:"B003",recipeId:"R001",productId:"P003",qty:0.060,unit:"kg"},
-    {id:"B004",recipeId:"R001",productId:"P009",qty:0.020,unit:"L"},
-    {id:"B004b",recipeId:"R001",type:"subrecipe",subRecipeId:"SR001",qty:0.150,unit:"kg"},
-    {id:"B005",recipeId:"R002",productId:"P005",qty:0.100,unit:"kg"},
-    {id:"B006",recipeId:"R002",productId:"P010",qty:0.060,unit:"kg"},
-    {id:"B007",recipeId:"R002",productId:"P008",qty:2,unit:"und"},
-    {id:"B008",recipeId:"R002",productId:"P007",qty:0.030,unit:"kg"},
-    {id:"B009",recipeId:"R002",productId:"P009",qty:0.010,unit:"L"},
-    {id:"B010",recipeId:"R003",productId:"P001",qty:0.200,unit:"kg"},
-    {id:"B011",recipeId:"R003",productId:"P004",qty:0.030,unit:"kg"},
-    {id:"B012",recipeId:"R003",productId:"P009",qty:0.030,unit:"L"},
-    {id:"B013",recipeId:"R004",productId:"P008",qty:2,unit:"und"},
-    {id:"B014",recipeId:"R004",productId:"P007",qty:0.020,unit:"kg"},
-    {id:"B015",recipeId:"R004",productId:"P006",qty:0.060,unit:"L"},
-  ],
-  purchases:[
-    // Week 1 (Mar 30 – Apr 5) — current week
-    {id:"PU001",date:"2026-04-03",productId:"P001",qty:10,totalCost:145,status:"Recibido"},
-    {id:"PU002",date:"2026-04-03",productId:"P002",qty:8,totalCost:336,status:"Recibido"},
-    {id:"PU003",date:"2026-04-01",productId:"P005",qty:5,totalCost:42.5,status:"Recibido"},
-    {id:"PU004",date:"2026-04-01",productId:"P003",qty:6,totalCost:15,status:"Recibido"},
-    {id:"PU005",date:"2026-04-02",productId:"P006",qty:4,totalCost:38,status:"Recibido"},
-    {id:"PU006",date:"2026-04-02",productId:"P007",qty:1.5,totalCost:72,status:"Recibido"},
-    // Week 2 (Mar 23–29)
-    {id:"PU007",date:"2026-03-25",productId:"P001",qty:12,totalCost:168,status:"Recibido"},
-    {id:"PU008",date:"2026-03-25",productId:"P002",qty:7,totalCost:280,status:"Recibido"},
-    {id:"PU009",date:"2026-03-24",productId:"P005",qty:6,totalCost:51,status:"Recibido"},
-    {id:"PU010",date:"2026-03-24",productId:"P003",qty:8,totalCost:20,status:"Recibido"},
-    {id:"PU011",date:"2026-03-26",productId:"P009",qty:3,totalCost:96,status:"Recibido"},
-    {id:"PU012",date:"2026-03-27",productId:"P010",qty:2,totalCost:76,status:"Recibido"},
-    // Week 3 (Mar 16–22)
-    {id:"PU013",date:"2026-03-18",productId:"P001",qty:10,totalCost:140,status:"Recibido"},
-    {id:"PU014",date:"2026-03-18",productId:"P002",qty:9,totalCost:369,status:"Recibido"},
-    {id:"PU015",date:"2026-03-19",productId:"P005",qty:5,totalCost:42.5,status:"Recibido"},
-    {id:"PU016",date:"2026-03-20",productId:"P006",qty:3,totalCost:28.5,status:"Recibido"},
-    {id:"PU017",date:"2026-03-20",productId:"P012",qty:10,totalCost:20,status:"Recibido"},
-    // Week 4 (Mar 9–15)
-    {id:"PU018",date:"2026-03-11",productId:"P001",qty:11,totalCost:148.5,status:"Recibido"},
-    {id:"PU019",date:"2026-03-11",productId:"P002",qty:8,totalCost:320,status:"Recibido"},
-    {id:"PU020",date:"2026-03-12",productId:"P003",qty:7,totalCost:17.5,status:"Recibido"},
-    {id:"PU021",date:"2026-03-13",productId:"P007",qty:2,totalCost:92,status:"Recibido"},
-    // Feb (for monthly)
-    {id:"PU022",date:"2026-02-20",productId:"P001",qty:40,totalCost:560,status:"Recibido"},
-    {id:"PU023",date:"2026-02-20",productId:"P002",qty:30,totalCost:1230,status:"Recibido"},
-    {id:"PU024",date:"2026-02-10",productId:"P005",qty:20,totalCost:170,status:"Recibido"},
-    {id:"PU025",date:"2026-02-10",productId:"P003",qty:25,totalCost:62.5,status:"Recibido"},
-    {id:"PU026",date:"2026-02-15",productId:"P006",qty:12,totalCost:114,status:"Recibido"},
-    {id:"PU027",date:"2026-02-15",productId:"P007",qty:5,totalCost:230,status:"Recibido"},
-    {id:"PU028",date:"2026-02-05",productId:"P009",qty:8,totalCost:248,status:"Recibido"},
-    {id:"PU029",date:"2026-02-05",productId:"P010",qty:6,totalCost:216,status:"Recibido"},
-  ],
-  // priceHistory: [{productId, date, unitCost}] — for ingredient cost trend chart
-  priceHistory:[
-    // Pollo pechuga (P001)
-    {id:"PH001",productId:"P001",date:"2026-01-06",unitCost:13.0},
-    {id:"PH002",productId:"P001",date:"2026-01-20",unitCost:13.5},
-    {id:"PH003",productId:"P001",date:"2026-02-03",unitCost:13.5},
-    {id:"PH004",productId:"P001",date:"2026-02-17",unitCost:14.0},
-    {id:"PH005",productId:"P001",date:"2026-03-03",unitCost:14.0},
-    {id:"PH006",productId:"P001",date:"2026-03-17",unitCost:14.5},
-    {id:"PH007",productId:"P001",date:"2026-04-01",unitCost:14.5},
-    // Lomo de res (P002)
-    {id:"PH008",productId:"P002",date:"2026-01-06",unitCost:38.0},
-    {id:"PH009",productId:"P002",date:"2026-01-20",unitCost:39.0},
-    {id:"PH010",productId:"P002",date:"2026-02-03",unitCost:40.0},
-    {id:"PH011",productId:"P002",date:"2026-02-17",unitCost:40.0},
-    {id:"PH012",productId:"P002",date:"2026-03-03",unitCost:41.0},
-    {id:"PH013",productId:"P002",date:"2026-03-17",unitCost:41.5},
-    {id:"PH014",productId:"P002",date:"2026-04-01",unitCost:42.0},
-    // Cebolla (P003)
-    {id:"PH015",productId:"P003",date:"2026-01-06",unitCost:2.0},
-    {id:"PH016",productId:"P003",date:"2026-01-20",unitCost:2.2},
-    {id:"PH017",productId:"P003",date:"2026-02-03",unitCost:2.5},
-    {id:"PH018",productId:"P003",date:"2026-02-17",unitCost:2.8},
-    {id:"PH019",productId:"P003",date:"2026-03-03",unitCost:2.5},
-    {id:"PH020",productId:"P003",date:"2026-03-17",unitCost:2.5},
-    {id:"PH021",productId:"P003",date:"2026-04-01",unitCost:2.5},
-    // Parmesano (P007) — volatile
-    {id:"PH022",productId:"P007",date:"2026-01-06",unitCost:44.0},
-    {id:"PH023",productId:"P007",date:"2026-01-20",unitCost:45.0},
-    {id:"PH024",productId:"P007",date:"2026-02-03",unitCost:46.0},
-    {id:"PH025",productId:"P007",date:"2026-02-17",unitCost:46.0},
-    {id:"PH026",productId:"P007",date:"2026-03-03",unitCost:47.0},
-    {id:"PH027",productId:"P007",date:"2026-03-17",unitCost:48.0},
-    {id:"PH028",productId:"P007",date:"2026-04-01",unitCost:48.0},
-    // Aceite de oliva (P009) — stable
-    {id:"PH029",productId:"P009",date:"2026-01-06",unitCost:32.0},
-    {id:"PH030",productId:"P009",date:"2026-02-03",unitCost:32.0},
-    {id:"PH031",productId:"P009",date:"2026-03-03",unitCost:32.0},
-    {id:"PH032",productId:"P009",date:"2026-04-01",unitCost:32.0},
-  ],
+  products:[],
+  recipes:[],
+  bom:[],
+  purchases:[],
+  priceHistory:[],
   sales:[],
-  orders:[
-    {id:"ORD001",code:"#001",tableNum:4,date:"2026-04-03",status:"closed",waiter:"María"},
-    {id:"ORD002",code:"#002",tableNum:7,date:"2026-04-03",status:"open",waiter:"Juan"},
-    // Week 1 extra orders
-    {id:"ORD003",code:"#003",tableNum:2,date:"2026-04-02",status:"closed",waiter:"Juan"},
-    {id:"ORD004",code:"#004",tableNum:5,date:"2026-04-02",status:"closed",waiter:"María"},
-    {id:"ORD005",code:"#005",tableNum:1,date:"2026-04-01",status:"closed",waiter:"Pedro"},
-    {id:"ORD006",code:"#006",tableNum:3,date:"2026-04-01",status:"closed",waiter:"María"},
-    {id:"ORD007",code:"#007",tableNum:6,date:"2026-03-31",status:"closed",waiter:"Juan"},
-    {id:"ORD008",code:"#008",tableNum:8,date:"2026-03-31",status:"closed",waiter:"Pedro"},
-    {id:"ORD009",code:"#009",tableNum:2,date:"2026-03-30",status:"closed",waiter:"María"},
-    // Week 2
-    {id:"ORD010",code:"#010",tableNum:4,date:"2026-03-28",status:"closed",waiter:"Juan"},
-    {id:"ORD011",code:"#011",tableNum:3,date:"2026-03-28",status:"closed",waiter:"Pedro"},
-    {id:"ORD012",code:"#012",tableNum:7,date:"2026-03-27",status:"closed",waiter:"María"},
-    {id:"ORD013",code:"#013",tableNum:1,date:"2026-03-26",status:"closed",waiter:"Juan"},
-    {id:"ORD014",code:"#014",tableNum:5,date:"2026-03-25",status:"closed",waiter:"Pedro"},
-    {id:"ORD015",code:"#015",tableNum:2,date:"2026-03-24",status:"closed",waiter:"María"},
-    {id:"ORD016",code:"#016",tableNum:6,date:"2026-03-23",status:"closed",waiter:"Juan"},
-    // Week 3
-    {id:"ORD017",code:"#017",tableNum:3,date:"2026-03-21",status:"closed",waiter:"Pedro"},
-    {id:"ORD018",code:"#018",tableNum:8,date:"2026-03-20",status:"closed",waiter:"María"},
-    {id:"ORD019",code:"#019",tableNum:4,date:"2026-03-19",status:"closed",waiter:"Juan"},
-    {id:"ORD020",code:"#020",tableNum:1,date:"2026-03-18",status:"closed",waiter:"Pedro"},
-    // Week 4
-    {id:"ORD021",code:"#021",tableNum:5,date:"2026-03-14",status:"closed",waiter:"María"},
-    {id:"ORD022",code:"#022",tableNum:2,date:"2026-03-13",status:"closed",waiter:"Juan"},
-    {id:"ORD023",code:"#023",tableNum:7,date:"2026-03-12",status:"closed",waiter:"Pedro"},
-    {id:"ORD024",code:"#024",tableNum:3,date:"2026-03-11",status:"closed",waiter:"María"},
-    // Feb orders (for monthly P&L)
-    {id:"ORD025",code:"#025",tableNum:4,date:"2026-02-28",status:"closed",waiter:"Juan"},
-    {id:"ORD026",code:"#026",tableNum:6,date:"2026-02-27",status:"closed",waiter:"Pedro"},
-    {id:"ORD027",code:"#027",tableNum:1,date:"2026-02-25",status:"closed",waiter:"María"},
-    {id:"ORD028",code:"#028",tableNum:3,date:"2026-02-20",status:"closed",waiter:"Juan"},
-    {id:"ORD029",code:"#029",tableNum:5,date:"2026-02-15",status:"closed",waiter:"Pedro"},
-    {id:"ORD030",code:"#030",tableNum:2,date:"2026-02-10",status:"closed",waiter:"María"},
-    {id:"ORD031",code:"#031",tableNum:8,date:"2026-02-05",status:"closed",waiter:"Juan"},
-    {id:"ORD032",code:"#032",tableNum:4,date:"2026-02-01",status:"closed",waiter:"Pedro"},
-  ],
-  orderLines:[
-    {id:"OL001",orderId:"ORD001",recipeId:"R002",qty:2,note:""},
-    {id:"OL002",orderId:"ORD001",recipeId:"R001",qty:1,note:""},
-    {id:"OL003",orderId:"ORD002",recipeId:"R002",qty:2,note:""},
-    // Week 1 extra
-    {id:"OL004",orderId:"ORD003",recipeId:"R001",qty:2,note:""},
-    {id:"OL005",orderId:"ORD003",recipeId:"R003",qty:1,note:""},
-    {id:"OL006",orderId:"ORD004",recipeId:"R002",qty:3,note:""},
-    {id:"OL007",orderId:"ORD004",recipeId:"R004",qty:2,note:""},
-    {id:"OL008",orderId:"ORD005",recipeId:"R001",qty:2,note:""},
-    {id:"OL009",orderId:"ORD005",recipeId:"R002",qty:2,note:""},
-    {id:"OL010",orderId:"ORD006",recipeId:"R003",qty:3,note:""},
-    {id:"OL011",orderId:"ORD007",recipeId:"R001",qty:1,note:""},
-    {id:"OL012",orderId:"ORD007",recipeId:"R004",qty:2,note:""},
-    {id:"OL013",orderId:"ORD008",recipeId:"R002",qty:2,note:""},
-    {id:"OL014",orderId:"ORD008",recipeId:"R003",qty:1,note:""},
-    {id:"OL015",orderId:"ORD009",recipeId:"R001",qty:3,note:""},
-    // Week 2
-    {id:"OL016",orderId:"ORD010",recipeId:"R002",qty:2,note:""},
-    {id:"OL017",orderId:"ORD010",recipeId:"R001",qty:1,note:""},
-    {id:"OL018",orderId:"ORD011",recipeId:"R003",qty:2,note:""},
-    {id:"OL019",orderId:"ORD011",recipeId:"R004",qty:1,note:""},
-    {id:"OL020",orderId:"ORD012",recipeId:"R001",qty:2,note:""},
-    {id:"OL021",orderId:"ORD012",recipeId:"R002",qty:2,note:""},
-    {id:"OL022",orderId:"ORD013",recipeId:"R003",qty:3,note:""},
-    {id:"OL023",orderId:"ORD014",recipeId:"R002",qty:3,note:""},
-    {id:"OL024",orderId:"ORD014",recipeId:"R001",qty:1,note:""},
-    {id:"OL025",orderId:"ORD015",recipeId:"R004",qty:2,note:""},
-    {id:"OL026",orderId:"ORD015",recipeId:"R003",qty:2,note:""},
-    {id:"OL027",orderId:"ORD016",recipeId:"R001",qty:2,note:""},
-    // Week 3
-    {id:"OL028",orderId:"ORD017",recipeId:"R002",qty:2,note:""},
-    {id:"OL029",orderId:"ORD017",recipeId:"R001",qty:2,note:""},
-    {id:"OL030",orderId:"ORD018",recipeId:"R003",qty:2,note:""},
-    {id:"OL031",orderId:"ORD018",recipeId:"R004",qty:3,note:""},
-    {id:"OL032",orderId:"ORD019",recipeId:"R001",qty:3,note:""},
-    {id:"OL033",orderId:"ORD020",recipeId:"R002",qty:2,note:""},
-    // Week 4
-    {id:"OL034",orderId:"ORD021",recipeId:"R001",qty:2,note:""},
-    {id:"OL035",orderId:"ORD021",recipeId:"R003",qty:2,note:""},
-    {id:"OL036",orderId:"ORD022",recipeId:"R002",qty:3,note:""},
-    {id:"OL037",orderId:"ORD023",recipeId:"R001",qty:1,note:""},
-    {id:"OL038",orderId:"ORD023",recipeId:"R004",qty:2,note:""},
-    {id:"OL039",orderId:"ORD024",recipeId:"R003",qty:3,note:""},
-    // Feb
-    {id:"OL040",orderId:"ORD025",recipeId:"R001",qty:3,note:""},
-    {id:"OL041",orderId:"ORD025",recipeId:"R002",qty:2,note:""},
-    {id:"OL042",orderId:"ORD026",recipeId:"R003",qty:4,note:""},
-    {id:"OL043",orderId:"ORD026",recipeId:"R004",qty:2,note:""},
-    {id:"OL044",orderId:"ORD027",recipeId:"R001",qty:2,note:""},
-    {id:"OL045",orderId:"ORD027",recipeId:"R002",qty:3,note:""},
-    {id:"OL046",orderId:"ORD028",recipeId:"R003",qty:3,note:""},
-    {id:"OL047",orderId:"ORD029",recipeId:"R001",qty:4,note:""},
-    {id:"OL048",orderId:"ORD029",recipeId:"R004",qty:2,note:""},
-    {id:"OL049",orderId:"ORD030",recipeId:"R002",qty:4,note:""},
-    {id:"OL050",orderId:"ORD031",recipeId:"R001",qty:2,note:""},
-    {id:"OL051",orderId:"ORD031",recipeId:"R003",qty:2,note:""},
-    {id:"OL052",orderId:"ORD032",recipeId:"R002",qty:3,note:""},
-    {id:"OL053",orderId:"ORD032",recipeId:"R001",qty:2,note:""},
-  ],
-  suppliers:[
-    {id:"SUP001",name:"Cárnicos del Norte SAC",contact:"Carlos Ríos",phone:"987-654-321",email:"carlos@carnicosnorte.pe",category:"Carnes y Aves",leadTime:2,minOrder:150,notes:"Entrega Mar/Jue. Pedido mínimo S/ 150."},
-    {id:"SUP002",name:"Lima Fresh SAC",contact:"Ana Torres",phone:"976-543-210",email:"ana@limafresh.pe",category:"Verduras y Frutas",leadTime:1,minOrder:80,notes:"Entrega diaria antes del mediodía."},
-    {id:"SUP003",name:"Importaciones Gourmet",contact:"Rosa Vega",phone:"954-321-098",email:"rosa@gourmet.pe",category:"Secos y Despensa",leadTime:3,minOrder:200,notes:"Productos importados. Mínimo S/ 200."},
-  ],
-  wastageLog:[
-    {id:"W001",productId:"P001",productName:"Pollo (pechuga)",qty:0.5,unit:"kg",reason:"Vencimiento",note:"",date:"2026-04-01",lostValue:7.25},
-    {id:"W002",productId:"P003",productName:"Cebolla",qty:0.8,unit:"kg",reason:"Daño/golpe",note:"",date:"2026-04-02",lostValue:2.0},
-    {id:"W003",productId:"P006",productName:"Crema de leche",qty:0.5,unit:"L",reason:"Vencimiento",note:"",date:"2026-03-28",lostValue:4.75},
-    {id:"W004",productId:"P002",productName:"Lomo de res",qty:0.3,unit:"kg",reason:"Error de cocina",note:"",date:"2026-03-25",lostValue:12.6},
-    {id:"W005",productId:"P011",productName:"Tomate cherry",qty:0.4,unit:"kg",reason:"Vencimiento",note:"",date:"2026-03-22",lostValue:2.8},
-    {id:"W006",productId:"P001",productName:"Pollo (pechuga)",qty:0.6,unit:"kg",reason:"Mal almacenamiento",note:"",date:"2026-03-18",lostValue:8.7},
-    {id:"W007",productId:"P005",productName:"Fettuccine",qty:0.5,unit:"kg",reason:"Daño/golpe",note:"",date:"2026-03-15",lostValue:4.25},
-    {id:"W008",productId:"P002",productName:"Lomo de res",qty:0.5,unit:"kg",reason:"Vencimiento",note:"",date:"2026-02-25",lostValue:21.0},
-    {id:"W009",productId:"P001",productName:"Pollo (pechuga)",qty:1.0,unit:"kg",reason:"Vencimiento",note:"",date:"2026-02-18",lostValue:14.0},
-    {id:"W010",productId:"P006",productName:"Crema de leche",qty:0.8,unit:"L",reason:"Vencimiento",note:"",date:"2026-02-10",lostValue:7.6},
-    {id:"W011",productId:"P003",productName:"Cebolla",qty:1.2,unit:"kg",reason:"Daño/golpe",note:"",date:"2026-02-05",lostValue:3.0},
-  ],
+  orders:[],
+  orderLines:[],
+  suppliers:[],
+  wastageLog:[],
   recipeCategories:["Fondos","Entradas","Pastas","Postres","Bebidas"],
   ingredientCategories:["Carnes","Verduras","Lácteos","Secos","Despensa","Otros"],
-  subRecipes:[
-    {id:"SR001",name:"Papa Fritas Precocidas",category:"Preparaciones",batchYield:0.8,yieldUnit:"kg",notes:"Blanch 3min, then fry to order",stock:1.6},
-    {id:"SR002",name:"Fondo de Pollo",category:"Fondos y Caldos",batchYield:3,yieldUnit:"L",notes:"Simmer 2h. Freeze excess in 1L portions",stock:0},
-    {id:"SR003",name:"Salsa Criolla",category:"Salsas",batchYield:0.5,yieldUnit:"kg",notes:"Make fresh daily. Max 1 day refrigerated",stock:0},
-  ],
-  subBom:[
-    {id:"SB001",subRecipeId:"SR001",productId:"P012",qty:1.1,unit:"kg"},
-    {id:"SB002",subRecipeId:"SR001",productId:"P009",qty:0.05,unit:"L"},
-    {id:"SB003",subRecipeId:"SR002",productId:"P001",qty:0.8,unit:"kg"},
-    {id:"SB004",subRecipeId:"SR002",productId:"P003",qty:0.15,unit:"kg"},
-    {id:"SB005",subRecipeId:"SR002",productId:"P004",qty:0.03,unit:"kg"},
-    {id:"SB006",subRecipeId:"SR003",productId:"P003",qty:0.3,unit:"kg"},
-    {id:"SB007",subRecipeId:"SR003",productId:"P011",qty:0.2,unit:"kg"},
-  ],
+  subRecipes:[],
+  subBom:[],
   subRecipeCategories:["Salsas","Fondos y Caldos","Preparaciones","Masas","Otros"],
-  productionLog:[
-    {id:"PL001",date:"2026-07-11",subRecipeId:"SR001",subRecipeName:"Papa Fritas Precocidas",batches:2,yieldQty:1.6,yieldUnit:"kg",ingredientsUsed:[{productId:"P012",qty:2.2,unit:"kg"},{productId:"P009",qty:0.1,unit:"L"}],note:"Blanqueadas para el fin de semana"},
-  ],      // {id, date, subRecipeId, batches, yieldQty, ingredientsUsed}
-  stockCounts:[],        // {id, date, productId, openingStock, physicalQty, note}
-  paymentRecons:[],      // {id, date, yape, cash, card, easyTotal, note}
-  users:[
-    {id:"U001",name:"Carlos (Dueño)",role:"owner",pin:"1234",avatar:"👑",active:true},
-    {id:"U002",name:"María Chef",role:"chef",pin:"2222",avatar:"👨‍🍳",active:true},
-    {id:"U003",name:"Juan Cajero",role:"cashier",pin:"3333",avatar:"💰",active:true},
-    {id:"U004",name:"Pedro Visor",role:"viewer",pin:"4444",avatar:"👁",active:true},
-  ],
-  activityLog:[
-    {id:"AL001",userId:"U001",userName:"Carlos (Dueño)",action:"Ingrediente agregado","target":"Pollo (pechuga)",module:"inventory",ts:"2026-04-03T08:15:00"},
-    {id:"AL002",userId:"U002",userName:"María Chef",action:"Receta editada",target:"Lomo Saltado",module:"recipes",ts:"2026-04-03T09:22:00"},
-    {id:"AL003",userId:"U003",userName:"Juan Cajero",action:"Venta registrada",target:"Mesa 4 · S/ 121",module:"sales",ts:"2026-04-03T12:05:00"},
-    {id:"AL004",userId:"U001",userName:"Carlos (Dueño)",action:"Compra registrada",target:"Lomo de res 8 kg",module:"abastecimiento",ts:"2026-04-03T10:40:00"},
-    {id:"AL005",userId:"U002",userName:"María Chef",action:"Producción registrada",target:"Papa Fritas Precocidas × 2",module:"inventory",ts:"2026-04-02T11:00:00"},
-  ],
+  productionLog:[],
+  stockCounts:[],
+  paymentRecons:[],
+  users:[],
+  activityLog:[],
   settings:{
-    igvMode:"incluido",      // "incluido" | "excluido" | "ninguno"
-    serviceCharge:false,     // true = cobra 10% cargo por servicio
-    serviceChargePct:10,     // porcentaje del cargo por servicio
-    restaurantName:"",       // nombre para comprobantes
-    ruc:"",                  // RUC del negocio
-    foodCostTarget:30,       // target food cost % (default 30%)
+    igvMode:"incluido",
+    serviceCharge:false,
+    serviceChargePct:10,
+    restaurantName:"",
+    ruc:"",
+    foodCostTarget:30,
   },
 };
 
@@ -25048,15 +24802,18 @@ function FirstRunSetup({data,setData,setCurrentUser,toast}){
     if(!form.ownerName.trim()){setError("Ingresa tu nombre");return;}
     if(!/^\d{4}$/.test(form.pin)){setError("El PIN debe tener 4 dígitos");return;}
     if(form.pin!==form.pin2){setError("Los PIN no coinciden");return;}
+    const newOwner=ownerUser
+      ?{...ownerUser,name:form.ownerName.trim(),pin:form.pin}
+      :{id:"U001",name:form.ownerName.trim(),role:"owner",pin:form.pin,avatar:"👑",active:true};
     setData(d=>({
       ...d,
-      users:d.users.map(u=>u.id===ownerUser.id?{...u,name:form.ownerName.trim(),pin:form.pin}:u),
+      users:ownerUser?d.users.map(u=>u.id===ownerUser.id?newOwner:u):[newOwner,...(d.users||[])],
       settings:{...d.settings,
         restaurantName:form.bizName.trim()||d.settings.restaurantName,
         ruc:form.ruc.trim()||d.settings.ruc}
     }));
-    setCurrentUser(prev=>({...prev,name:form.ownerName.trim(),pin:form.pin}));
-    toast("¡Cuenta configurada! Bienvenido a The Easy Cook","success");
+    setCurrentUser(newOwner);
+    toast("¡Cuenta creada! Bienvenido a The Easy Cook","success");
   };
 
   return h('div',{style:{
@@ -25069,7 +24826,7 @@ function FirstRunSetup({data,setData,setCurrentUser,toast}){
         h('div',{style:{width:52,height:52,borderRadius:16,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 12px"}},"👋"),
         h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:700}},"Bienvenido a The Easy Cook"),
         h('div',{style:{fontSize:13,color:"var(--text2)",marginTop:6,lineHeight:1.5}},
-          "Antes de empezar, reemplaza la cuenta de demostración con la tuya.")
+          "Crea la cuenta del dueño para empezar. Con tu PIN entrarás cada vez.")
       ),
       h(FormRow,{label:"Tu nombre"},
         h('input',{value:form.ownerName,autoFocus:true,onChange:e=>set("ownerName",e.target.value),placeholder:"ej. Diego Velasco"})),
@@ -25082,7 +24839,7 @@ function FirstRunSetup({data,setData,setCurrentUser,toast}){
             onChange:e=>set("pin2",e.target.value.replace(/\D/g,"").slice(0,4)),placeholder:"••••"}))
       ),
       h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:-6,marginBottom:16}},
-        "El PIN de demostración (1234) dejará de funcionar."),
+        "Guarda bien tu PIN — lo usarás para entrar cada vez."),
       h('div',{style:{borderTop:"1px solid var(--border)",paddingTop:16,marginBottom:6}},
         h('div',{style:{fontSize:12,fontWeight:600,color:"var(--text2)",marginBottom:10}},
           "Datos del negocio — opcional, puedes completarlo después"),
@@ -25093,6 +24850,54 @@ function FirstRunSetup({data,setData,setCurrentUser,toast}){
       ),
       error&&h('div',{style:{fontSize:12,color:"var(--red)",marginBottom:12,fontWeight:500,textAlign:"center"}},error),
       h(Btn,{onClick:finish,size:"lg",style:{width:"100%"}},"Finalizar configuración")
+    )
+  );
+}
+
+// ─── GUIDED FIRST-TIME SETUP ────────────────────────────────────────────────
+// One-time launcher shown right after a brand-new owner creates their account.
+// Each step sends them to the real module (where the actual forms live) and
+// marks onboarding done; the Dashboard setup-checklist keeps nudging afterward.
+function SetupWizard({data,ownerName,onGo}){
+  const hasProducts=(data.products||[]).length>0;
+  const hasRecipes=(data.recipes||[]).length>0;
+  const bizConfigured=!!(data.settings?.restaurantName);
+  const steps=[
+    {icon:"📦",title:"Agrega tu primer insumo",desc:"Registra un ingrediente que compras (ej. pollo, arroz) con su costo.",page:"inventory",done:hasProducts,cta:"Ir a Stock →"},
+    {icon:"🍽",title:"Crea tu primer plato",desc:"Arma una receta con tus insumos — la app calcula su costo sola.",page:"recipes",done:hasRecipes,cta:"Ir a Recetas →"},
+    {icon:"🎯",title:"Fija tu objetivo de costo e IGV",desc:"Define tu meta de costo y cómo manejas el IGV para tus reportes.",page:"settings",done:bizConfigured,cta:"Ir a Configuración →"},
+  ];
+  return h('div',{style:{
+    position:"fixed",top:0,right:0,bottom:0,left:0,background:"var(--bg)",zIndex:200,
+    display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 20px"
+  }},
+    h('div',{className:"pin-login-inner",style:{width:"100%",maxWidth:440}},
+      h('div',{style:{textAlign:"center",marginBottom:22}},
+        h('div',{style:{width:52,height:52,borderRadius:16,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 12px"}},"🚀"),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:700}},
+          "¡Listo"+(ownerName?", "+ownerName.split(" ")[0]:"")+"! Demos los primeros pasos"),
+        h('div',{style:{fontSize:13,color:"var(--text2)",marginTop:6,lineHeight:1.5}},
+          "Tres pasos rápidos para dejar tu restaurante listo. Puedes hacerlos ahora o más tarde.")
+      ),
+      h('div',{style:{display:"flex",flexDirection:"column",gap:10,marginBottom:18}},
+        steps.map((s,i)=>h('div',{key:i,onClick:()=>onGo(s.page),className:"ec-hover-accent",style:{
+          display:"flex",alignItems:"center",gap:12,padding:"14px",cursor:"pointer",
+          background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)"
+        }},
+          h('div',{style:{width:38,height:38,borderRadius:10,flexShrink:0,
+            background:s.done?"rgba(34,197,94,0.15)":"rgba(249,115,22,0.12)",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}},s.done?"✓":s.icon),
+          h('div',{style:{flex:1,minWidth:0}},
+            h('div',{style:{fontSize:13,fontWeight:700}},(i+1)+". "+s.title),
+            h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:2,lineHeight:1.4}},s.desc)),
+          h('div',{style:{fontSize:11,fontWeight:700,color:"var(--accent)",whiteSpace:"nowrap",flexShrink:0}},s.cta)
+        ))
+      ),
+      h('button',{onClick:()=>onGo("dashboard"),style:{
+        width:"100%",padding:"11px",borderRadius:"var(--radius-sm)",cursor:"pointer",
+        background:"transparent",border:"1px solid var(--border)",color:"var(--text2)",
+        fontFamily:"var(--sans)",fontSize:13,fontWeight:600
+      }},"Saltar por ahora")
     )
   );
 }
@@ -25125,14 +24930,26 @@ function App(){
     setPage("dashboard");
   };
 
+  // Brand-new install (no owner account yet) → create the owner first
+  const ownerExists=(data.users||[]).some(u=>u.role==="owner");
+  if(!ownerExists){
+    return h(FirstRunSetup,{data,setData,setCurrentUser,toast});
+  }
+
   // Show PIN login if no user is logged in
   if(!currentUser){
     return h(PinLogin,{users:data.users,onLogin:setCurrentUser,firstRun:isFirstRun(data)});
   }
 
-  // Mandatory first-run setup — demo owner account must be replaced before use
+  // Legacy: replace a demo owner account before use (won't trigger on a clean install)
   if(isFirstRun(data)&&currentUser.role==="owner"){
     return h(FirstRunSetup,{data,setData,setCurrentUser,toast});
+  }
+
+  // Guided first-time setup — one-time launcher for a brand-new owner
+  if(currentUser.role==="owner"&&!data.settings?.onboarded){
+    return h(SetupWizard,{data,ownerName:currentUser.name,
+      onGo:pg=>{setData(d=>({...d,settings:{...d.settings,onboarded:true}}));if(pg)setPage(pg);}});
   }
 
   const role=currentUser.role;

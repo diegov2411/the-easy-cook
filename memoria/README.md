@@ -21,6 +21,14 @@ y acuerdos, para que ninguna conversación futura pierda el hilo.
 - **Enlace en vivo:** https://diegov2411.github.io/the-easy-cook/ (verificado funcionando).
 - Cuenta de GitHub: `diegov2411`. Rama principal: `master`.
 
+### 2026-07-14 — Onboarding limpio para producción (v4.7.0)
+- **Objetivo:** vender a dueños de restaurantes pequeños/medianos → app intuitiva y automática.
+- Auditoría de primer uso encontró que producción arrancaba llena de datos de un restaurante ficticio (alertas falsas, perfiles ajenos, PIN demo 1234).
+- **Solo en producción (V4):** `INIT` ahora vacío; primer uso abre en "crea tu cuenta de dueño" (sin perfiles demo ni PIN 1234); nuevo `SetupWizard` (asistente de primeros pasos) tras crear la cuenta. Sin plantillas de platos peruanos (decisión del usuario).
+- **Demo (V4-DEMO) SIN TOCAR:** mantiene datos de ejemplo + auto-login (es la herramienta de venta).
+- Divergencia intencional prod/demo documentada. Versiones divergen: prod v4.7.0, demo v4.6.4.
+- Verificado en vivo el flujo completo de instalación nueva (crear cuenta → asistente → módulos vacíos → dashboard sin alertas falsas).
+
 ### 2026-07-14 — Ítem #2 completado (v4.6.0)
 - **Parte A:** las alertas de stock crítico y bajo ahora sugieren cuánto comprar (≈ mín×2 − actual).
   Nota: el precio sugerido en platos caros y el ingrediente faltante en platos no disponibles YA existían.
