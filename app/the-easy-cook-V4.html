@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.3";
+const APP_VERSION = "4.6.4";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.4", date:"Jul 2026", notes:"Sprint 15e: Se quitó la tira de 'compras pendientes' del Inicio (bajo Estado del inventario), porque esa misma información ya aparece en el panel de Alertas y en '¿Qué hago hoy?' — evitamos repetirla."},
   {v:"4.6.3", date:"Jul 2026", notes:"Sprint 15d: Se activó el resaltado al pasar el mouse (borde naranja) en dos lugares donde estaba escrito pero no funcionaba: las filas de productos en el análisis de consistencia de conteos, y los botones de perfil en la pantalla de acceso."},
   {v:"4.6.2", date:"Jul 2026", notes:"Sprint 15c: Arreglado un detalle visual — al pasar el mouse por encima de las tarjetas (insumos, recetas y similares) a veces se quedaban resaltadas aunque el cursor ya no estuviera encima. Ahora el resaltado lo maneja el navegador y desaparece apenas quitas el mouse."},
   {v:"4.6.1", date:"Jul 2026", notes:"Sprint 15b: El panel '¿Qué hago hoy?' ahora se puede minimizar (igual que el de Alertas), y ambos arrancan minimizados al abrir el Inicio para que 'Rendimiento de hoy' quede visible de una, sin tener que bajar."},
@@ -18819,30 +18820,6 @@ function Dashboard({data,setPage,currentUser}){
         h('span',{style:{fontWeight:600,color:"var(--red)"}},critical.length+" crítico"+(critical.length!==1?"s":"")+": "),
         critical.map(p=>p.name).join(", ")
       )
-    ),
-
-    // ── PENDING PURCHASES STRIP (if any) ─────────────────────────────────────
-    pendingPurchases.length>0&&h('div',{
-      onClick:()=>setPage("abastecimiento"),
-      style:{
-        display:"flex",alignItems:"center",gap:10,
-        background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",
-        borderRadius:"var(--radius)",padding:"11px 14px",marginBottom:16,cursor:"pointer"
-      }
-    },
-      h('span',{style:{fontSize:18}},"🛒"),
-      h('div',{style:{flex:1}},
-        h('div',{style:{fontSize:12,fontWeight:700,color:"var(--blue)"}},
-          pendingPurchases.length+" compra"+(pendingPurchases.length!==1?"s":"")+" pendiente"+(pendingPurchases.length!==1?"s":"")
-        ),
-        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},
-          pendingPurchases.slice(0,3).map(p=>{
-            const prod=products.find(x=>x.id===p.productId);
-            return prod?prod.name:p.productId;
-          }).join(", ")+(pendingPurchases.length>3?" y "+(pendingPurchases.length-3)+" más":"")
-        )
-      ),
-      h('span',{style:{color:"var(--text3)",fontSize:14}},"›")
     ),
 
     // ── PRICING ALERTS (top 3 if >0) ─────────────────────────────────────────
