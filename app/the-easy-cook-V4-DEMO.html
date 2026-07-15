@@ -44,6 +44,7 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 .fade-in{animation:fadeIn .2s ease both}
 .ec-card-clickable{transition:border-color .15s ease, transform .15s ease}
 .ec-card-clickable:hover{border-color:var(--border2)!important;transform:translateY(-1px)}
+.ec-hover-accent:hover{border-color:var(--accent)!important}
 
 /* ── DESKTOP LAYOUT (≥769px) ─────────────────────────────────────────── */
 @media(min-width:769px){
@@ -17399,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.2";
+const APP_VERSION = "4.6.3";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.3", date:"Jul 2026", notes:"Sprint 15d: Se activó el resaltado al pasar el mouse (borde naranja) en dos lugares donde estaba escrito pero no funcionaba: las filas de productos en el análisis de consistencia de conteos, y los botones de perfil en la pantalla de acceso."},
   {v:"4.6.2", date:"Jul 2026", notes:"Sprint 15c: Arreglado un detalle visual — al pasar el mouse por encima de las tarjetas (insumos, recetas y similares) a veces se quedaban resaltadas aunque el cursor ya no estuviera encima. Ahora el resaltado lo maneja el navegador y desaparece apenas quitas el mouse."},
   {v:"4.6.1", date:"Jul 2026", notes:"Sprint 15b: El panel '¿Qué hago hoy?' ahora se puede minimizar (igual que el de Alertas), y ambos arrancan minimizados al abrir el Inicio para que 'Rendimiento de hoy' quede visible de una, sin tener que bajar."},
   {v:"4.6.0", date:"Jul 2026", notes:"Sprint 15: Nuevo panel '¿Qué hago hoy?' en el Inicio — junta en una sola lista, ordenada por urgencia, las tareas accionables del día (comprar insumos con cantidad sugerida, confirmar compras pendientes, recontar stock, subir precios de platos por debajo del objetivo), cada una con un botón que lleva directo al módulo correcto. Las alertas de stock crítico y bajo ahora también sugieren cuánto comprar."},
@@ -21715,8 +21717,8 @@ function CountAnalysis({productStats,drillProduct,setDrillProduct,tolerancePct,s
       productStats.map(s=>{
         const barColor=s.freqPct>66?"var(--red)":s.freqPct>33?"var(--yellow)":"var(--green)";
         const barW=maxFreq>0?(s.freqPct/maxFreq*100).toFixed(1)+"%":"0%";
-        return h('div',{key:s.p.id,onClick:()=>setDrillProduct(s.p.id),
-          style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"11px 14px",cursor:"pointer",transition:"border-color .15s",":hover":{borderColor:"var(--accent)"}}},
+        return h('div',{key:s.p.id,onClick:()=>setDrillProduct(s.p.id),className:"ec-hover-accent",
+          style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"11px 14px",cursor:"pointer",transition:"border-color .15s"}},
           h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
             h('div',null,
               h('span',{style:{fontSize:13,fontWeight:600}},s.p.name),
@@ -24197,10 +24199,9 @@ function PinLogin({users, onLogin, firstRun}){
           h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}},
             activeUsers.map(u=>{
               const role=ROLES[u.role]||ROLES.viewer;
-              return h('button',{key:u.id,onClick:()=>{setSelectedUser(u);setPin("");setError(false);},style:{
+              return h('button',{key:u.id,onClick:()=>{setSelectedUser(u);setPin("");setError(false);},className:"ec-hover-accent",style:{
                 background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",
-                padding:"18px 14px",textAlign:"center",cursor:"pointer",transition:"all .15s",
-                ':hover':{borderColor:"var(--accent)"}
+                padding:"18px 14px",textAlign:"center",cursor:"pointer",transition:"all .15s"
               }},
                 h('div',{style:{fontSize:28,marginBottom:6}},u.avatar||role.icon),
                 h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:600,marginBottom:4}},u.name),
