@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.5";
+const APP_VERSION = "4.6.6";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.6", date:"Jul 2026", notes:"La versión demo ahora guarda sus datos en un espacio separado del de producción, para que abrir la demo y la app real en el mismo dispositivo nunca se pisen los datos entre sí."},
   {v:"4.6.5", date:"Jul 2026", notes:"Arreglada la Matriz de Menú cuando todavía no hay datos: si no tienes platos, muestra un aviso claro para crear recetas; si tienes platos pero aún no registras ventas, explica que necesita ventas — en vez de un gráfico roto o con posiciones inventadas."},
   {v:"4.6.4", date:"Jul 2026", notes:"Sprint 15e: Se quitó la tira de 'compras pendientes' del Inicio (bajo Estado del inventario), porque esa misma información ya aparece en el panel de Alertas y en '¿Qué hago hoy?' — evitamos repetirla."},
   {v:"4.6.3", date:"Jul 2026", notes:"Sprint 15d: Se activó el resaltado al pasar el mouse (borde naranja) en dos lugares donde estaba escrito pero no funcionaba: las filas de productos en el análisis de consistencia de conteos, y los botones de perfil en la pantalla de acceso."},
@@ -25033,7 +25034,7 @@ function Sidebar({page,setPage,role,currentUser,onLogout,data}){
 const PAGE_TITLES={dashboard:null,inventory:"Inventario",recipes:"Recetas",menueng:"Ingeniería de Menú",abastecimiento:"Abastecimiento",sales:"Ventas",payrecon:"Cuadre de Caja",salesrecon:"Ventas & Caja",reports:"Reportes",users:"Equipo",activitylog:"Registro de Actividad",settings:"Configuración"};
 
 // ─── APP ─────────────────────────────────────────────────────────────────────
-const APP_KEY = "theeasycook_v3_data";
+const APP_KEY = "theeasycook_demo_data";  // clave separada de producción — evita colisión de datos
 
 function migrateData(saved) {
   // Deep-merge saved data against INIT so new array/object keys
