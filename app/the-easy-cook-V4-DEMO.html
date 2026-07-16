@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.7";
+const APP_VERSION = "4.6.8";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.8", date:"Jul 2026", notes:"'Pegar lista de compra' ahora muestra el formato esperado (Ingrediente · Cantidad + unidad · Precio por unidad) y, si tu lista es larga, la revisión previa se puede desplazar sin tapar el botón de confirmar."},
   {v:"4.6.7", date:"Jul 2026", notes:"Nueva función en Compras: 'Pegar lista de compra'. Escribe o pega tu lista tal cual (ej. 'Pollo 5kg 12.50, Tomate 3kg 4') y la app la entiende sola, la muestra para que la revises y la agrega al stock de una sola vez. Los insumos que aún no tienes se crean automáticamente."},
   {v:"4.6.6", date:"Jul 2026", notes:"La versión demo ahora guarda sus datos en un espacio separado del de producción, para que abrir la demo y la app real en el mismo dispositivo nunca se pisen los datos entre sí."},
   {v:"4.6.5", date:"Jul 2026", notes:"Arreglada la Matriz de Menú cuando todavía no hay datos: si no tienes platos, muestra un aviso claro para crear recetas; si tienes platos pero aún no registras ventas, explica que necesita ventas — en vez de un gráfico roto o con posiciones inventadas."},
@@ -20947,7 +20948,12 @@ function PurchasesTab({data,setData,toast}){
       pasteRows==null
         ?h(Fragment,null,
           h('div',{style:{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:8}},
-            "Escribe o pega tu lista de compra, un producto por línea. La app la entiende sola:"),
+            "Escribe o pega tu lista, un producto por línea. La app la entiende sola."),
+          h('div',{style:{background:"rgba(249,115,22,0.08)",border:"1px solid rgba(249,115,22,0.25)",borderRadius:"var(--radius-sm)",padding:"9px 11px",marginBottom:10}},
+            h('div',{style:{fontSize:11,fontWeight:700,color:"var(--accent)",marginBottom:4}},"Formato de cada línea"),
+            h('div',{style:{fontSize:13,color:"var(--text)",fontWeight:600}},"Ingrediente · Cantidad + unidad · Precio por unidad"),
+            h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:4,lineHeight:1.5}},
+              "El precio es opcional. Ej: \"Pollo 5kg 12.50\" = 5 kg de Pollo a S/ 12.50 por kg.")),
           h('div',{style:{fontFamily:"monospace",fontSize:12,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"8px 10px",marginBottom:12,color:"var(--text3)",whiteSpace:"pre-line"}},
             "Pollo 5kg 12.50\nTomate 3 kg 4\nAceite 2L 32\nCebolla 4kg"),
           h('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),rows:6,
@@ -20964,6 +20970,7 @@ function PurchasesTab({data,setData,toast}){
             :h('div',null,
               h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.6,marginBottom:10}},
                 "Revisa y ajusta. Los insumos nuevos se crearán en la categoría \"Otros\" (puedes cambiarla luego)."),
+              h('div',{style:{maxHeight:"46vh",overflowY:"auto",margin:"0 -2px",padding:"0 2px"}},
               pasteRows.map((r,i)=>h('div',{key:i,style:{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px",marginBottom:8}},
                 h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
                   h('select',{value:r.matchedId||"__new__",onChange:e=>{
@@ -20990,7 +20997,7 @@ function PurchasesTab({data,setData,toast}){
                 ),
                 h('div',{style:{fontSize:11,color:"var(--text2)",marginTop:5,textAlign:"right"}},
                   "Total línea: ",h('strong',{style:{color:"var(--accent)"}},fmtCost((+r.qty||0)*(+r.unitPrice||0))))
-              )),
+              ))),
               h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px 4px",borderTop:"1px solid var(--border)",marginTop:4}},
                 h('span',{style:{fontSize:12,color:"var(--text2)"}},pasteRows.length+" ítem"+(pasteRows.length!==1?"s":"")),
                 h('span',{style:{fontSize:14,fontWeight:700}},"Total: ",h('span',{style:{color:"var(--accent)"}},fmtCost(pasteRows.reduce((s,r)=>s+(+r.qty||0)*(+r.unitPrice||0),0))))
