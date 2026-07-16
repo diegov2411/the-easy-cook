@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.6";
+const APP_VERSION = "4.6.7";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.7", date:"Jul 2026", notes:"Nueva función en Compras: 'Pegar lista de compra'. Escribe o pega tu lista tal cual (ej. 'Pollo 5kg 12.50, Tomate 3kg 4') y la app la entiende sola, la muestra para que la revises y la agrega al stock de una sola vez. Los insumos que aún no tienes se crean automáticamente."},
   {v:"4.6.6", date:"Jul 2026", notes:"La versión demo ahora guarda sus datos en un espacio separado del de producción, para que abrir la demo y la app real en el mismo dispositivo nunca se pisen los datos entre sí."},
   {v:"4.6.5", date:"Jul 2026", notes:"Arreglada la Matriz de Menú cuando todavía no hay datos: si no tienes platos, muestra un aviso claro para crear recetas; si tienes platos pero aún no registras ventas, explica que necesita ventas — en vez de un gráfico roto o con posiciones inventadas."},
   {v:"4.6.4", date:"Jul 2026", notes:"Sprint 15e: Se quitó la tira de 'compras pendientes' del Inicio (bajo Estado del inventario), porque esa misma información ya aparece en el panel de Alertas y en '¿Qué hago hoy?' — evitamos repetirla."},
@@ -20669,6 +20670,48 @@ function PurchaseDayGroups({sorted,products,data,statusColor,changeStatus}){
 }
 
 // ─── PURCHASES ────────────────────────────────────────────────────────────────
+// ─── SMART PURCHASE ENTRY — paste a list, parse it (rule-based, no AI) ────────
+const EC_UNITS={kg:"kg",kilo:"kg",kilos:"kg",kilogramo:"kg",kilogramos:"kg",k:"kg",g:"g",gr:"g",grs:"g",gramo:"g",gramos:"g",l:"L",lt:"L",lts:"L",litro:"L",litros:"L",ml:"ml",und:"und",un:"und",u:"und",unid:"und",unidad:"und",unidades:"und",doc:"docena",docena:"docena",docenas:"docena",pqt:"paquete",paquete:"paquete",paquetes:"paquete",bolsa:"bolsa",bolsas:"bolsa",caja:"caja",cajas:"caja",lata:"lata",latas:"lata",saco:"saco",sacos:"saco",atado:"atado",atados:"atado"};
+function ecNorm(s){return (s==null?"":String(s)).toLowerCase().normalize("NFD").replace(new RegExp("[\\u0300-\\u036f]","g"),"").trim();}
+function ecMatchProduct(name,products){
+  const n=ecNorm(name); if(!n)return null;
+  let m=(products||[]).find(p=>ecNorm(p.name)===n); if(m)return m;
+  m=(products||[]).find(p=>{const pn=ecNorm(p.name);return pn&&(pn.startsWith(n)||n.startsWith(pn));}); if(m)return m;
+  m=(products||[]).find(p=>{const pn=ecNorm(p.name);return pn&&(pn.includes(n)||n.includes(pn));}); return m||null;
+}
+function parsePurchaseLine(raw,products){
+  const line=(raw||"").trim(); if(!line)return null;
+  const tokens=line.replace(/,/g," ").replace(/\s+/g," ").split(" ").filter(Boolean);
+  let qty=null,unit="",price=null; const nameParts=[],nums=[];
+  for(let i=0;i<tokens.length;i++){
+    const t=tokens[i], low=t.toLowerCase();
+    const sMatch=low.match(/^s\/?\.?(\d+(?:[.,]\d+)?)?$/);
+    if(sMatch){
+      if(sMatch[1]!=null)price=parseFloat(sMatch[1].replace(",","."));
+      else{const nxt=tokens[i+1],nv=nxt&&nxt.match(/^(\d+(?:[.,]\d+)?)$/);if(nv){price=parseFloat(nv[1].replace(",","."));i++;}}
+      continue;
+    }
+    const nu=low.match(/^(\d+(?:[.,]\d+)?)([a-z]+)?$/);
+    if(nu){
+      const val=parseFloat(nu[1].replace(",",".")),ur=nu[2];
+      if(ur&&EC_UNITS[ur]){qty=val;unit=EC_UNITS[ur];}
+      else nums.push(val);
+      continue;
+    }
+    if(EC_UNITS[low]){unit=EC_UNITS[low];if(qty==null&&nums.length)qty=nums.pop();continue;}
+    nameParts.push(t);
+  }
+  if(qty==null&&nums.length)qty=nums.shift();
+  if(price==null&&nums.length)price=nums.shift();
+  const typedName=nameParts.join(" ").trim();
+  const matched=ecMatchProduct(typedName,products);
+  return {raw:line,typedName,name:matched?matched.name:typedName,matchedId:matched?matched.id:null,
+    qty:qty!=null?qty:1,unit:unit||(matched?matched.unit:"und"),unitPrice:price!=null?price:(matched?(matched.avgCost||0):0)};
+}
+function parsePurchaseText(text,products){
+  return (text||"").split(/\n/).map(l=>parsePurchaseLine(l,products)).filter(Boolean);
+}
+
 function PurchasesTab({data,setData,toast}){
   const {purchases,products}=data;
   const [modal,setModal]=useState(false);
@@ -20677,6 +20720,13 @@ function PurchasesTab({data,setData,toast}){
   const [dateFrom,setDateFrom]=useState("");
   const [dateTo,setDateTo]=useState("");
   const [showDateFilter,setShowDateFilter]=useState(false);
+  const [pasteModal,setPasteModal]=useState(false);
+  const [pasteText,setPasteText]=useState("");
+  const [pasteRows,setPasteRows]=useState(null);
+  const openPaste=()=>{setPasteText("");setPasteRows(null);setPasteModal(true);};
+  const doParsePaste=()=>setPasteRows(parsePurchaseText(pasteText,products));
+  const updatePasteRow=(i,patch)=>setPasteRows(rows=>rows.map((r,j)=>j===i?{...r,...patch}:r));
+  const removePasteRow=(i)=>setPasteRows(rows=>rows.filter((_,j)=>j!==i));
 
   // ── helpers ────────────────────────────────────────────────────────────────
   // Apply stock + avg cost update when a purchase is confirmed as Recibido
@@ -20711,6 +20761,33 @@ function PurchasesTab({data,setData,toast}){
       return{...d,purchases:updatedPurchases,products:updatedProducts,priceHistory:[...(d.priceHistory||[]),phEntry]};
     });
     setModal(false);toast("Compra registrada · Stock e inventario actualizados","success");
+  };
+
+  // ── commit a pasted purchase list — creates new ingredients as needed ──────
+  const commitPaste=()=>{
+    const rows=(pasteRows||[]).filter(r=>(+r.qty)>0&&((r.matchedId)||(r.name||r.typedName||"").trim()));
+    if(!rows.length){toast("No hay líneas válidas para agregar","error");return;}
+    setData(d=>{
+      let products=[...d.products],purchases=[...d.purchases],priceHistory=[...(d.priceHistory||[])];
+      const defCat=(d.ingredientCategories||[]).includes("Otros")?"Otros":((d.ingredientCategories||[])[0]||"Otros");
+      rows.forEach(r=>{
+        const qty=+r.qty||0;if(qty<=0)return;
+        const unitPrice=+r.unitPrice||0;const total=+(qty*unitPrice).toFixed(2);
+        let pid=r.matchedId;
+        if(!pid){
+          pid="P"+uid();
+          products.push({id:pid,name:(r.name||r.typedName||"Insumo").trim(),category:defCat,unit:r.unit||"und",minStock:0,stock:0,avgCost:unitPrice,yieldPct:100});
+        }
+        const pu={id:"PU"+uid(),productId:pid,qty,totalCost:total,date:today(),status:"Recibido"};
+        purchases.push(pu);
+        products=applyToInventory(pu,products,purchases);
+        priceHistory.push({id:"PH"+uid(),productId:pid,date:pu.date,unitCost:total/qty});
+      });
+      return{...d,products,purchases,priceHistory};
+    });
+    const n=rows.length;
+    setPasteModal(false);
+    toast(n+" ítem"+(n!==1?"s":"")+" agregado"+(n!==1?"s":"")+" al stock ✅","success");
   };
 
   // ── change status of an existing purchase ─────────────────────────────────
@@ -20757,6 +20834,13 @@ function PurchasesTab({data,setData,toast}){
 
   return h('div',{className:"slide-up"},
     h(SectionHeader,{title:"Compras",action:()=>{setForm({date:today()});setModal(true);},actionLabel:"+ Nueva compra"}),
+
+    h('button',{onClick:openPaste,style:{
+      width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+      padding:"11px",marginBottom:12,borderRadius:"var(--radius)",cursor:"pointer",
+      border:"1px dashed var(--accent)",background:"rgba(249,115,22,0.08)",
+      color:"var(--accent)",fontFamily:"var(--sans)",fontSize:13,fontWeight:700
+    }},"📋 Pegar lista de compra"),
 
     // Status filter tabs + date filter
     h('div',{style:{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:2,alignItems:"center"}},
@@ -20857,6 +20941,66 @@ function PurchasesTab({data,setData,toast}){
         h(Btn,{onClick:save,style:{flex:1},size:"lg",disabled:!form.productId||!form.qty||!form.totalCost},"Guardar compra"),
         h(Btn,{variant:"ghost",onClick:()=>setModal(false)},"Cancelar")
       )
+    ),
+
+    h(Modal,{open:pasteModal,onClose:()=>setPasteModal(false),title:"Compra rápida — pega tu lista"},
+      pasteRows==null
+        ?h(Fragment,null,
+          h('div',{style:{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:8}},
+            "Escribe o pega tu lista de compra, un producto por línea. La app la entiende sola:"),
+          h('div',{style:{fontFamily:"monospace",fontSize:12,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"8px 10px",marginBottom:12,color:"var(--text3)",whiteSpace:"pre-line"}},
+            "Pollo 5kg 12.50\nTomate 3 kg 4\nAceite 2L 32\nCebolla 4kg"),
+          h('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),rows:6,
+            placeholder:"Pollo 5kg 12.50",style:{width:"100%",resize:"vertical",minHeight:120}}),
+          h('div',{style:{display:"flex",gap:8,marginTop:12}},
+            h(Btn,{onClick:doParsePaste,size:"lg",style:{flex:1},disabled:!pasteText.trim()},"Analizar lista"),
+            h(Btn,{variant:"ghost",onClick:()=>setPasteModal(false)},"Cancelar")
+          )
+        )
+        :h(Fragment,null,
+          pasteRows.length===0
+            ?h('div',{style:{textAlign:"center",padding:"1.5rem",color:"var(--text3)",fontSize:13}},
+              "No pude leer ningún producto. Revisa el formato (ej. \"Pollo 5kg 12.50\").")
+            :h('div',null,
+              h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.6,marginBottom:10}},
+                "Revisa y ajusta. Los insumos nuevos se crearán en la categoría \"Otros\" (puedes cambiarla luego)."),
+              pasteRows.map((r,i)=>h('div',{key:i,style:{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px",marginBottom:8}},
+                h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+                  h('select',{value:r.matchedId||"__new__",onChange:e=>{
+                      const v=e.target.value;
+                      if(v==="__new__")updatePasteRow(i,{matchedId:null});
+                      else{const p=products.find(x=>x.id===v);updatePasteRow(i,{matchedId:v,name:p.name,unit:p.unit});}
+                    },style:{flex:1,fontSize:13,padding:"7px 8px"}},
+                    h('option',{value:"__new__"},"➕ Crear: "+(r.typedName||r.name||"nuevo")),
+                    products.map(p=>h('option',{key:p.id,value:p.id},p.name+" ("+p.unit+")"))
+                  ),
+                  h('span',{style:{fontSize:9,fontWeight:700,padding:"3px 7px",borderRadius:10,whiteSpace:"nowrap",
+                    background:r.matchedId?"rgba(34,197,94,0.15)":"rgba(249,115,22,0.15)",
+                    color:r.matchedId?"var(--green)":"var(--accent)"}},r.matchedId?"existente":"nuevo"),
+                  h('button',{onClick:()=>removePasteRow(i),style:{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:16,padding:"0 4px",lineHeight:1}},"✕")
+                ),
+                !r.matchedId&&h('input',{value:r.name,onChange:e=>updatePasteRow(i,{name:e.target.value}),placeholder:"Nombre del insumo",style:{marginBottom:8,fontSize:13,padding:"8px 10px"}}),
+                h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+                  h('div',null,h('div',{style:{fontSize:10,color:"var(--text3)",marginBottom:3}},"Cantidad"),
+                    h('input',{type:"number",value:r.qty,onChange:e=>updatePasteRow(i,{qty:e.target.value}),style:{fontSize:13,padding:"7px 8px"}})),
+                  h('div',null,h('div',{style:{fontSize:10,color:"var(--text3)",marginBottom:3}},"Unidad"),
+                    h('input',{value:r.unit,onChange:e=>updatePasteRow(i,{unit:e.target.value}),style:{fontSize:13,padding:"7px 8px"}})),
+                  h('div',null,h('div',{style:{fontSize:10,color:"var(--text3)",marginBottom:3}},"Precio/u"),
+                    h('input',{type:"number",value:r.unitPrice,onChange:e=>updatePasteRow(i,{unitPrice:e.target.value}),style:{fontSize:13,padding:"7px 8px"}}))
+                ),
+                h('div',{style:{fontSize:11,color:"var(--text2)",marginTop:5,textAlign:"right"}},
+                  "Total línea: ",h('strong',{style:{color:"var(--accent)"}},fmtCost((+r.qty||0)*(+r.unitPrice||0))))
+              )),
+              h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px 4px",borderTop:"1px solid var(--border)",marginTop:4}},
+                h('span',{style:{fontSize:12,color:"var(--text2)"}},pasteRows.length+" ítem"+(pasteRows.length!==1?"s":"")),
+                h('span',{style:{fontSize:14,fontWeight:700}},"Total: ",h('span',{style:{color:"var(--accent)"}},fmtCost(pasteRows.reduce((s,r)=>s+(+r.qty||0)*(+r.unitPrice||0),0))))
+              )
+            ),
+          h('div',{style:{display:"flex",gap:8,marginTop:12}},
+            h(Btn,{variant:"ghost",onClick:()=>setPasteRows(null)},"‹ Editar texto"),
+            pasteRows.length>0&&h(Btn,{onClick:commitPaste,size:"lg",style:{flex:1},disabled:!pasteRows.some(r=>(+r.qty)>0)},"Agregar todo al stock")
+          )
+        )
     )
   );
 }
