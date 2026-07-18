@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.9";
+const APP_VERSION = "4.6.10";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.10", date:"Jul 2026", notes:"Nueva función en Compras: 'Armar lista de compra'. Arma tu lista (empieza con lo que está bajo mínimo, con cantidad sugerida), edítala libremente y envíasela por WhatsApp o cópiala a quien hace las compras. Cuando llegue el pedido, 'Registrar al llegar' la pasa a 'Pegar lista' para sumarla al stock con los precios."},
   {v:"4.6.9", date:"Jul 2026", notes:"Las alertas del Inicio ahora respetan los permisos de cada usuario: el dueño ve todas, y cada otro perfil (chef, cajero, jefe de salón, visor) ve solo las alertas que puede atender según su rol — por ejemplo, el cajero solo ve las diferencias de caja."},
   {v:"4.6.8", date:"Jul 2026", notes:"'Pegar lista de compra' ahora muestra el formato esperado (Ingrediente · Cantidad + unidad · Precio por unidad) y, si tu lista es larga, la revisión previa se puede desplazar sin tapar el botón de confirmar."},
   {v:"4.6.7", date:"Jul 2026", notes:"Nueva función en Compras: 'Pegar lista de compra'. Escribe o pega tu lista tal cual (ej. 'Pollo 5kg 12.50, Tomate 3kg 4') y la app la entiende sola, la muestra para que la revises y la agrega al stock de una sola vez. Los insumos que aún no tienes se crean automáticamente."},
@@ -20741,6 +20742,28 @@ function PurchasesTab({data,setData,toast}){
   const doParsePaste=()=>setPasteRows(parsePurchaseText(pasteText,products));
   const updatePasteRow=(i,patch)=>setPasteRows(rows=>rows.map((r,j)=>j===i?{...r,...patch}:r));
   const removePasteRow=(i)=>setPasteRows(rows=>rows.filter((_,j)=>j!==i));
+  // ── build & share a buying list (from low stock, editable) ────────────────
+  const [buildModal,setBuildModal]=useState(false);
+  const [buildText,setBuildText]=useState("");
+  const openBuild=()=>{
+    const low=(products||[]).filter(p=>p.stock<p.minStock)
+      .sort((a,b)=>(a.stock-a.minStock)-(b.stock-b.minStock))
+      .map(p=>{const buy=Math.max(p.minStock*2-p.stock,p.minStock);return `${p.name} ${fmtNum(buy)}${p.unit}`;});
+    setBuildText(low.join("\n"));
+    setBuildModal(true);
+  };
+  const buildFullText=()=>{
+    const rn=getSettings(data).restaurantName;
+    return `🛒 Lista de compra${rn?" — "+rn:""} — ${today()}\n`+buildText;
+  };
+  const copyBuild=()=>{
+    const txt=buildFullText();
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(()=>toast("Lista copiada — pégala donde quieras","success"),()=>toast("No se pudo copiar automáticamente","error"));
+    } else { toast("Selecciona el texto para copiarlo","info"); }
+  };
+  const shareWhatsApp=()=>{ window.open("https://wa.me/?text="+encodeURIComponent(buildFullText()),"_blank"); };
+  const sendToReader=()=>{ setPasteText(buildText); setBuildModal(false); setPasteRows(null); setPasteModal(true); };
 
   // ── helpers ────────────────────────────────────────────────────────────────
   // Apply stock + avg cost update when a purchase is confirmed as Recibido
@@ -20848,6 +20871,13 @@ function PurchasesTab({data,setData,toast}){
 
   return h('div',{className:"slide-up"},
     h(SectionHeader,{title:"Compras",action:()=>{setForm({date:today()});setModal(true);},actionLabel:"+ Nueva compra"}),
+
+    h('button',{onClick:openBuild,style:{
+      width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+      padding:"11px",marginBottom:8,borderRadius:"var(--radius)",cursor:"pointer",
+      border:"1px dashed var(--accent)",background:"rgba(249,115,22,0.08)",
+      color:"var(--accent)",fontFamily:"var(--sans)",fontSize:13,fontWeight:700
+    }},"🧾 Armar lista de compra"),
 
     h('button',{onClick:openPaste,style:{
       width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,
@@ -21021,6 +21051,25 @@ function PurchasesTab({data,setData,toast}){
             pasteRows.length>0&&h(Btn,{onClick:commitPaste,size:"lg",style:{flex:1},disabled:!pasteRows.some(r=>(+r.qty)>0)},"Agregar todo al stock")
           )
         )
+    ),
+
+    h(Modal,{open:buildModal,onClose:()=>setBuildModal(false),title:"Armar lista de compra"},
+      h('div',{style:{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:8}},
+        "Empezamos con lo que está bajo mínimo (con cantidad sugerida). Edítala libremente — puedes agregar cualquier cosa, aunque no esté en tu inventario."),
+      h('textarea',{value:buildText,onChange:e=>setBuildText(e.target.value),rows:8,
+        placeholder:"Cebolla 3.7kg\nAceite 2.3L\nServilletas 2 paquetes",style:{width:"100%",resize:"vertical",minHeight:140}}),
+      h('div',{style:{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}},
+        h(Btn,{onClick:copyBuild,variant:"secondary",style:{flex:1,minWidth:120}},"📋 Copiar"),
+        h(Btn,{onClick:shareWhatsApp,variant:"secondary",style:{flex:1,minWidth:120}},"📲 WhatsApp")
+      ),
+      h('div',{style:{borderTop:"1px solid var(--border)",marginTop:14,paddingTop:14}},
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:8,lineHeight:1.5}},
+          "Cuando llegue la compra, agrégale los precios y regístrala en el stock:"),
+        h('div',{style:{display:"flex",gap:8}},
+          h(Btn,{onClick:sendToReader,size:"lg",style:{flex:1},disabled:!buildText.trim()},"Registrar al llegar →"),
+          h(Btn,{variant:"ghost",onClick:()=>setBuildModal(false)},"Cerrar")
+        )
+      )
     )
   );
 }
