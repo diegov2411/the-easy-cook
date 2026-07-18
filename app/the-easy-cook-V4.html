@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.5";
+const APP_VERSION = "4.7.6";
 const APP_BUILD   = "Sprint 16 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.6", date:"Jul 2026", notes:"La lista de compra que se envía por WhatsApp o se copia ahora se ve más ordenada: encabezado con el nombre del restaurante y la fecha escrita en palabras, productos con viñetas y total al pie. Dentro de la app verás una vista previa exacta del mensaje antes de enviarlo."},
   {v:"4.7.5", date:"Jul 2026", notes:"Nueva función en Compras: 'Armar lista de compra'. Arma tu lista (empieza con lo que está bajo mínimo, con cantidad sugerida), edítala libremente y envíasela por WhatsApp o cópiala a quien hace las compras. Cuando llegue el pedido, 'Registrar al llegar' la pasa a 'Pegar lista' para sumarla al stock con los precios."},
   {v:"4.7.4", date:"Jul 2026", notes:"Las alertas del Inicio ahora respetan los permisos de cada usuario: el dueño ve todas, y cada otro perfil (chef, cajero, jefe de salón, visor) ve solo las alertas que puede atender según su rol — por ejemplo, el cajero solo ve las diferencias de caja."},
   {v:"4.7.3", date:"Jul 2026", notes:"'Pegar lista de compra' ahora muestra el formato esperado (Ingrediente · Cantidad + unidad · Precio por unidad) y, si tu lista es larga, la revisión previa se puede desplazar sin tapar el botón de confirmar."},
@@ -20480,9 +20481,17 @@ function PurchasesTab({data,setData,toast}){
     setBuildText(low.join("\n"));
     setBuildModal(true);
   };
+  const _prettyDate=()=>{const d=new Date().toLocaleDateString("es-PE",{weekday:"long",day:"numeric",month:"long",year:"numeric"});return d.charAt(0).toUpperCase()+d.slice(1);};
   const buildFullText=()=>{
     const rn=getSettings(data).restaurantName;
-    return `🛒 Lista de compra${rn?" — "+rn:""} — ${today()}\n`+buildText;
+    const items=buildText.split("\n").map(l=>l.trim()).filter(Boolean);
+    return "🛒 *LISTA DE COMPRA*"
+      +(rn?"\n🏪 "+rn:"")
+      +"\n📅 "+_prettyDate()
+      +"\n————————————\n"
+      +items.map(l=>"• "+l).join("\n")
+      +"\n————————————\n📦 "+items.length+" producto"+(items.length!==1?"s":"")
+      +"\n_Enviado desde The Easy Cook_";
   };
   const copyBuild=()=>{
     const txt=buildFullText();
@@ -20784,8 +20793,21 @@ function PurchasesTab({data,setData,toast}){
     h(Modal,{open:buildModal,onClose:()=>setBuildModal(false),title:"Armar lista de compra"},
       h('div',{style:{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:8}},
         "Empezamos con lo que está bajo mínimo (con cantidad sugerida). Edítala libremente — puedes agregar cualquier cosa, aunque no esté en tu inventario."),
-      h('textarea',{value:buildText,onChange:e=>setBuildText(e.target.value),rows:8,
-        placeholder:"Cebolla 3.7kg\nAceite 2.3L\nServilletas 2 paquetes",style:{width:"100%",resize:"vertical",minHeight:140}}),
+      h('textarea',{value:buildText,onChange:e=>setBuildText(e.target.value),rows:6,
+        placeholder:"Cebolla 3.7kg\nAceite 2.3L\nServilletas 2 paquetes",style:{width:"100%",resize:"vertical",minHeight:110}}),
+      (()=>{const items=buildText.split("\n").map(l=>l.trim()).filter(Boolean);const rn=getSettings(data).restaurantName;return h('div',{style:{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"12px 14px",marginTop:12}},
+        h('div',{style:{fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:"0.06em",marginBottom:8}},"VISTA PREVIA DEL MENSAJE"),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,marginBottom:2}},"🛒 LISTA DE COMPRA"),
+        rn&&h('div',{style:{fontSize:12,color:"var(--text2)"}},"🏪 "+rn),
+        h('div',{style:{fontSize:12,color:"var(--text2)",marginBottom:8}},"📅 "+_prettyDate()),
+        h('div',{style:{borderTop:"1px dashed var(--border2)",paddingTop:8,display:"flex",flexDirection:"column",gap:3}},
+          items.length===0
+            ?h('div',{style:{fontSize:12,color:"var(--text3)",fontStyle:"italic"}},"(agrega productos arriba)")
+            :items.map((l,i)=>h('div',{key:i,style:{fontSize:13,color:"var(--text)"}},"• "+l))
+        ),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:8,borderTop:"1px dashed var(--border2)",paddingTop:6}},
+          "📦 "+items.length+" producto"+(items.length!==1?"s":""))
+      );})(),
       h('div',{style:{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}},
         h(Btn,{onClick:copyBuild,variant:"secondary",style:{flex:1,minWidth:120}},"📋 Copiar"),
         h(Btn,{onClick:shareWhatsApp,variant:"secondary",style:{flex:1,minWidth:120}},"📲 WhatsApp")
