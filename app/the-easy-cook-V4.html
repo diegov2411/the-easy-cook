@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.3";
+const APP_VERSION = "4.7.4";
 const APP_BUILD   = "Sprint 16 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.4", date:"Jul 2026", notes:"Las alertas del Inicio ahora respetan los permisos de cada usuario: el dueño ve todas, y cada otro perfil (chef, cajero, jefe de salón, visor) ve solo las alertas que puede atender según su rol — por ejemplo, el cajero solo ve las diferencias de caja."},
   {v:"4.7.3", date:"Jul 2026", notes:"'Pegar lista de compra' ahora muestra el formato esperado (Ingrediente · Cantidad + unidad · Precio por unidad) y, si tu lista es larga, la revisión previa se puede desplazar sin tapar el botón de confirmar."},
   {v:"4.7.2", date:"Jul 2026", notes:"Nueva función en Compras: 'Pegar lista de compra'. Escribe o pega tu lista tal cual (ej. 'Pollo 5kg 12.50, Tomate 3kg 4') y la app la entiende sola, la muestra para que la revises y la agrega al stock de una sola vez. Los insumos que aún no tienes se crean automáticamente."},
   {v:"4.7.1", date:"Jul 2026", notes:"Arreglada la Matriz de Menú cuando todavía no hay datos: si no tienes platos, muestra un aviso claro para crear recetas; si tienes platos pero aún no registras ventas, explica que necesita ventas — en vez de un gráfico roto o con posiciones inventadas."},
@@ -17905,7 +17906,7 @@ function AlertCenter({
   pendingPurchases,todayWastage,todayWastageCost2,
   cashMatchStatus,cashGap,
   products,bom,subBom,subRecipes,
-  igvMode,fct,setPage,
+  igvMode,fct,setPage,role,
   missingBizFields,demoStaffLeft,noRecipes,noProducts
 }){
   const [collapsed,setCollapsed]=useState(true);
@@ -18018,6 +18019,17 @@ function AlertCenter({
     body:demoStaffLeft.map(u=>`${u.name} — PIN de demo sin cambiar`),
     actions:[{label:"Ir a Equipo →",page:"users"}]
   });
+
+  // Role-based visibility: the owner sees every alert; other roles only see
+  // alerts they have permission to act on (based on the alert's primary action).
+  if(role&&role!=="owner"){
+    const PAGE_PERM={inventory:"editInventory",abastecimiento:"editPurchases",recipes:"editRecipes",menueng:"editRecipes",payrecon:"editSales",salesrecon:"editSales",reports:"viewReports",settings:"manageSettings",users:"manageUsers"};
+    for(let i=alerts.length-1;i>=0;i--){
+      const pg=alerts[i].actions&&alerts[i].actions[0]&&alerts[i].actions[0].page;
+      const perm=PAGE_PERM[pg];
+      if(!(perm&&can(role,perm))) alerts.splice(i,1);
+    }
+  }
 
   const totalCount=alerts.length;
   if(totalCount===0) return h('div',{style:{
@@ -18325,6 +18337,7 @@ function Dashboard({data,setPage,currentUser}){
       igvMode:_dashSettings.igvMode,
       fct:getFCT(data),
       setPage,
+      role:currentUser?.role,
       missingBizFields,demoStaffLeft,noRecipes,noProducts,
     }),
 
