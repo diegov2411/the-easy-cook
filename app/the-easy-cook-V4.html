@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.6";
+const APP_VERSION = "4.7.7";
 const APP_BUILD   = "Sprint 16 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.7", date:"Jul 2026", notes:"'Pegar lista' ahora entiende también el mensaje bonito de la lista de compra: ignora el encabezado, la fecha, el total y las líneas decorativas, y quita las viñetas. Puedes pegar el mensaje completo tal cual y solo quedan los productos."},
   {v:"4.7.6", date:"Jul 2026", notes:"La lista de compra que se envía por WhatsApp o se copia ahora se ve más ordenada: encabezado con el nombre del restaurante y la fecha escrita en palabras, productos con viñetas y total al pie. Dentro de la app verás una vista previa exacta del mensaje antes de enviarlo."},
   {v:"4.7.5", date:"Jul 2026", notes:"Nueva función en Compras: 'Armar lista de compra'. Arma tu lista (empieza con lo que está bajo mínimo, con cantidad sugerida), edítala libremente y envíasela por WhatsApp o cópiala a quien hace las compras. Cuando llegue el pedido, 'Registrar al llegar' la pasa a 'Pegar lista' para sumarla al stock con los precios."},
   {v:"4.7.4", date:"Jul 2026", notes:"Las alertas del Inicio ahora respetan los permisos de cada usuario: el dueño ve todas, y cada otro perfil (chef, cajero, jefe de salón, visor) ve solo las alertas que puede atender según su rol — por ejemplo, el cajero solo ve las diferencias de caja."},
@@ -20424,7 +20425,14 @@ function ecMatchProduct(name,products){
   m=(products||[]).find(p=>{const pn=ecNorm(p.name);return pn&&(pn.includes(n)||n.includes(pn));}); return m||null;
 }
 function parsePurchaseLine(raw,products){
-  const line=(raw||"").trim(); if(!line)return null;
+  let line=(raw||"").trim(); if(!line)return null;
+  // Ignore header/date/count/footer/divider lines from a shared "Lista de compra" message
+  const SKIP_PREFIX=["🛒","🏪","📅","📦","🧾","📍","🗒","📝","✅"];
+  if(SKIP_PREFIX.some(e=>line.startsWith(e))) return null;
+  if(/^_.*_$/.test(line)) return null;                                        // _italic footer_
+  if(new RegExp("^[-\\u2013\\u2014_=\\u00b7\\u2022.\\s]+$").test(line)) return null; // divider line
+  line=line.replace(new RegExp("^[\\u2022\\-*\\u00b7\\u25aa\\u25e6]+\\s*"),"").trim(); // strip bullet
+  if(!line||!/[a-zA-ZÀ-ÿ]/.test(line)) return null;                 // no letters → not an item
   const tokens=line.replace(/,/g," ").replace(/\s+/g," ").split(" ").filter(Boolean);
   let qty=null,unit="",price=null; const nameParts=[],nums=[];
   for(let i=0;i<tokens.length;i++){
