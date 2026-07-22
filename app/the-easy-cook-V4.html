@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.8.1";
+const APP_VERSION = "4.8.2";
 const APP_BUILD   = "Sprint 17 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.8.2", date:"Jul 2026", notes:"Descuentos más rápidos para el cajero: en el 'Ajuste' de un pedido, botones de un toque para 5/10/15/20% (calcula el monto solo) y motivos rápidos (Cliente frecuente, Cortesía, Promoción, Reclamo). Nueva pestaña 'Descuentos' en Ventas & Caja con la lista de todos los descuentos dados — mesa, monto, %, motivo, quién lo aplicó y si el pedido está abierto o cerrado — con total y filtro Hoy/Mes/Todos."},
   {v:"4.8.1", date:"Jul 2026", notes:"El botón de disponibilidad de cada receta (Disponible / 🚫 Agotado / Quedan N) ahora es tan visible como el botón Editar."},
   {v:"4.8.0", date:"Jul 2026", notes:"Control de cocina para agotar platos (86): desde Recetas, el chef puede marcar un plato como 'Agotado' o ponerle un 'límite de hoy' (N porciones que se descuentan al vender y se bloquea al llegar a 0; se reinicia cada día). En Ventas, el cajero lo ve claramente ('Agotado (cocina)' o 'quedan N') y puede forzarlo igual (candado suave), pero sabe que la cocina dijo que no hay más."},
   {v:"4.7.7", date:"Jul 2026", notes:"'Pegar lista' ahora entiende también el mensaje bonito de la lista de compra: ignora el encabezado, la fecha, el total y las líneas decorativas, y quita las viñetas. Puedes pegar el mensaje completo tal cual y solo quedan los productos."},
@@ -20885,7 +20886,7 @@ function dishAvailability(r, orders, orderLines){
   return {soldOut,limited,limit:limited?r.dailyLimit:null,sold,remaining,blocked};
 }
 
-function Sales({data,setData,toast}){
+function Sales({data,setData,toast,currentUser}){
   const {orders=[],orderLines=[],recipes,products,bom,subBom=[],subRecipes=[]}=data;
   const [view,setView]=useState("list");
   const [selectedOrder,setSelectedOrder]=useState(null);
@@ -21027,8 +21028,10 @@ function Sales({data,setData,toast}){
     const amount=+adjForm.amount||0;
     const type=adjForm.type||"discount";
     const finalAdj=type==="discount"?-Math.abs(amount):Math.abs(amount);
-    setData(d=>({...d,orders:d.orders.map(o=>o.id===ord.id?{...o,priceAdj:finalAdj,adjNote:adjForm.note||"",adjType:type}:o)}));
-    setSelectedOrder(prev=>({...prev,priceAdj:finalAdj,adjNote:adjForm.note||"",adjType:type}));
+    const patch={priceAdj:finalAdj,adjNote:adjForm.note||"",adjType:type,
+      adjPct:(type==="discount"&&adjForm.pct)?adjForm.pct:null,adjBy:currentUser?.name||"",adjAt:today()};
+    setData(d=>({...d,orders:d.orders.map(o=>o.id===ord.id?{...o,...patch}:o)}));
+    setSelectedOrder(prev=>({...prev,...patch}));
     setAdjModal(false);
     toast(`Ajuste de ${type==="discount"?"descuento":"cargo"} aplicado: ${fmtCost(Math.abs(amount))}`,"success");
   };
@@ -21269,9 +21272,26 @@ function Sales({data,setData,toast}){
             color:adjForm.type===t?(t==="discount"?"var(--green)":"var(--red)"):"var(--text2)"}},
             t==="discount"?"Descuento":"Cargo adicional"))
         ),
+        adjForm.type!=="surcharge"&&selectedOrder&&h('div',{style:{marginBottom:14}},
+          h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:6}},"Descuento rápido"),
+          h('div',{style:{display:"flex",gap:6}},
+            [5,10,15,20].map(p=>{const base=orderLinesTotal(selectedOrder.id);const active=adjForm.pct===p;return h('button',{key:p,onClick:()=>setAdjForm({...adjForm,type:"discount",pct:p,amount:String(+(base*p/100).toFixed(2))}),style:{
+              flex:1,padding:"9px 0",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
+              fontFamily:"var(--sans)",fontSize:14,fontWeight:700,
+              borderColor:active?"var(--green)":"var(--border2)",background:active?"rgba(34,197,94,0.15)":"var(--surface2)",color:active?"var(--green)":"var(--text2)"}},p+"%");})
+          )
+        ),
         h(FormRow,{label:`Monto (S/)`},
           h('input',{type:"number",min:"0",step:"0.50",value:adjForm.amount||"",
-            onChange:e=>setAdjForm({...adjForm,amount:e.target.value}),placeholder:"0.00"})
+            onChange:e=>setAdjForm({...adjForm,amount:e.target.value,pct:null}),placeholder:"0.00"})
+        ),
+        h('div',{style:{marginBottom:6}},
+          h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:6}},"Motivo rápido"),
+          h('div',{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+            ["Cliente frecuente","Cortesía","Promoción","Reclamo"].map(rz=>h('button',{key:rz,onClick:()=>setAdjForm({...adjForm,note:rz}),style:{
+              padding:"5px 11px",borderRadius:16,border:"1px solid",cursor:"pointer",fontFamily:"var(--sans)",fontSize:11,fontWeight:500,
+              borderColor:adjForm.note===rz?"var(--accent)":"var(--border2)",background:adjForm.note===rz?"rgba(249,115,22,0.12)":"transparent",color:adjForm.note===rz?"var(--accent)":"var(--text2)"}},rz))
+          )
         ),
         h(FormRow,{label:"Motivo / nota"},
           h('input',{value:adjForm.note||"",onChange:e=>setAdjForm({...adjForm,note:e.target.value}),
@@ -22633,21 +22653,62 @@ function MenuEngineering({data}){
 }
 
 // ─── SALES & CAJA COMBINED ────────────────────────────────────────────────────
-function SalesRecon({data,setData,toast}){
+function SalesRecon({data,setData,toast,currentUser}){
   const [tab,setTab]=useState("sales");
+  const discCount=(data.orders||[]).filter(o=>(o.priceAdj||0)<0).length;
   return h('div',{className:"slide-up"},
     h('div',{style:{display:"flex",gap:6,marginBottom:16}},
-      [{id:"sales",icon:"🧾",label:"Ventas"},{id:"payrecon",icon:"💰",label:"Cuadre de Caja"}]
+      [{id:"sales",icon:"🧾",label:"Ventas"},{id:"payrecon",icon:"💰",label:"Caja"},{id:"descuentos",icon:"🏷",label:"Descuentos"+(discCount>0?" ("+discCount+")":"")}]
         .map(t=>h('button',{key:t.id,onClick:()=>setTab(t.id),style:{
-          flex:1,padding:"9px 0",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
-          fontFamily:"var(--sans)",fontSize:13,fontWeight:600,
+          flex:1,padding:"9px 4px",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
+          fontFamily:"var(--sans)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
           borderColor:tab===t.id?"var(--accent)":"var(--border2)",
           background:tab===t.id?"rgba(249,115,22,0.15)":"var(--surface2)",
           color:tab===t.id?"var(--accent)":"var(--text2)"}},
           t.icon+" "+t.label))
     ),
-    tab==="sales"&&h(Sales,{data,setData,toast}),
-    tab==="payrecon"&&h(PaymentRecon,{data,setData,toast})
+    tab==="sales"&&h(Sales,{data,setData,toast,currentUser}),
+    tab==="payrecon"&&h(PaymentRecon,{data,setData,toast}),
+    tab==="descuentos"&&h(DiscountsTab,{data})
+  );
+}
+
+// ─── DISCOUNTS LIST — every discount given, for cashier speed + owner oversight ─
+function DiscountsTab({data}){
+  const {orders=[]}=data;
+  const [period,setPeriod]=useState("today");
+  const t=today();const mp=t.slice(0,7);
+  const all=orders.filter(o=>(o.priceAdj||0)<0);
+  const disc=all.filter(o=>period==="today"?o.date===t:period==="month"?(o.date||"").startsWith(mp):true)
+    .sort((a,b)=>((b.date||"")+(b.code||"")).localeCompare((a.date||"")+(a.code||"")));
+  const total=disc.reduce((s,o)=>s+Math.abs(o.priceAdj||0),0);
+  return h('div',null,
+    h('div',{style:{display:"flex",gap:6,marginBottom:12}},
+      [{id:"today",label:"Hoy"},{id:"month",label:"Este mes"},{id:"all",label:"Todos"}].map(p=>h('button',{key:p.id,onClick:()=>setPeriod(p.id),style:{
+        padding:"5px 13px",borderRadius:20,border:"1px solid",cursor:"pointer",fontFamily:"var(--sans)",fontSize:12,fontWeight:500,whiteSpace:"nowrap",
+        borderColor:period===p.id?"var(--accent)":"var(--border2)",background:period===p.id?"rgba(249,115,22,0.15)":"transparent",color:period===p.id?"var(--accent)":"var(--text2)"}},p.label))
+    ),
+    h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"12px 14px",marginBottom:14}},
+      h('div',{style:{fontSize:12,color:"var(--text2)"}},disc.length+" descuento"+(disc.length!==1?"s":"")),
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800,color:"var(--green)"}},"− "+fmtCost(total))
+    ),
+    disc.length===0
+      ?h(EmptyState,{icon:"🏷",title:"Sin descuentos",sub:"Los descuentos que apliques en los pedidos aparecerán aquí."})
+      :h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
+        disc.map(o=>h('div',{key:o.id,style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"11px 14px"}},
+          h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
+            h('div',{style:{minWidth:0}},
+              h('div',{style:{fontSize:13,fontWeight:600}},"Mesa "+(o.tableNum||"?")+" · "+(o.code||o.id)),
+              h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:2}},
+                (o.date||"")+(o.adjBy?" · "+o.adjBy:"")+" · "+(o.status==="closed"?"Cerrado":"Abierto"))
+            ),
+            h('div',{style:{textAlign:"right",flexShrink:0}},
+              h('div',{style:{fontSize:14,fontWeight:700,color:"var(--green)"}},"− "+fmtCost(Math.abs(o.priceAdj||0))),
+              o.adjPct&&h('div',{style:{fontSize:11,color:"var(--text3)"}},o.adjPct+"%"))
+          ),
+          o.adjNote&&h('div',{style:{fontSize:12,color:"var(--text2)",marginTop:6,background:"rgba(0,0,0,0.12)",borderRadius:6,padding:"5px 9px"}},"💬 "+o.adjNote)
+        ))
+      )
   );
 }
 
@@ -25287,7 +25348,7 @@ function App(){
     sales:h(Sales,{data,setData,toast}),
     payrecon:h(PaymentRecon,{data,setData,toast}),
     salesrecon: can(role,"editSales")
-      ? h(SalesRecon,{data,setData,toast,logActivity})
+      ? h(SalesRecon,{data,setData,toast,logActivity,currentUser})
       : h(PermGate,{perm:"editSales",role}),
     reports: can(role,"viewReports")
       ? h(Reports,{data})
