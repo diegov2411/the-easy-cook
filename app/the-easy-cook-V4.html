@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.8.0";
+const APP_VERSION = "4.8.1";
 const APP_BUILD   = "Sprint 17 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.8.1", date:"Jul 2026", notes:"El botón de disponibilidad de cada receta (Disponible / 🚫 Agotado / Quedan N) ahora es tan visible como el botón Editar."},
   {v:"4.8.0", date:"Jul 2026", notes:"Control de cocina para agotar platos (86): desde Recetas, el chef puede marcar un plato como 'Agotado' o ponerle un 'límite de hoy' (N porciones que se descuentan al vender y se bloquea al llegar a 0; se reinicia cada día). En Ventas, el cajero lo ve claramente ('Agotado (cocina)' o 'quedan N') y puede forzarlo igual (candado suave), pero sabe que la cocina dijo que no hay más."},
   {v:"4.7.7", date:"Jul 2026", notes:"'Pegar lista' ahora entiende también el mensaje bonito de la lista de compra: ignora el encabezado, la fecha, el total y las líneas decorativas, y quita las viñetas. Puedes pegar el mensaje completo tal cual y solo quedan los productos."},
   {v:"4.7.6", date:"Jul 2026", notes:"La lista de compra que se envía por WhatsApp o se copia ahora se ve más ordenada: encabezado con el nombre del restaurante y la fecha escrita en palabras, productos con viñetas y total al pie. Dentro de la app verás una vista previa exacta del mensaje antes de enviarlo."},
@@ -19589,7 +19590,7 @@ function Recipes({data,setData,toast}){
                     h("div",{style:{fontSize:10,color:"var(--text3)"}},"costo real"),
                     _listSettings.igvMode!=="ninguno"&&h("div",{style:{fontSize:10,color:"var(--text3)",opacity:0.7}},fmtPct(cpGross)+" carta"),
                     h("button",{onClick:e=>openEditRecipe(r,e),style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar"),
-                    (()=>{const av=dishAvailability(r,data.orders||[],data.orderLines||[]);const lbl=av.soldOut?"\ud83d\udeab Agotado":(av.limited?(av.remaining>0?"Quedan "+av.remaining:"Sin m\u00e1s"):"Disponibilidad");const col=av.blocked?"var(--red)":(av.limited?"var(--yellow)":"var(--text3)");return h("button",{onClick:e=>openAvail(r,e),style:{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,cursor:"pointer",border:"1px solid "+col+"55",background:col+"18",color:col,marginTop:2}},lbl);})()
+                    (()=>{const av=dishAvailability(r,data.orders||[],data.orderLines||[]);let lbl,col,bg,bd;if(av.soldOut){lbl="\ud83d\udeab Agotado";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited&&av.remaining<=0){lbl="\ud83d\udeab Sin m\u00e1s";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited){lbl="\ud83d\udd22 Quedan "+av.remaining;col="var(--yellow)";bg="rgba(234,179,8,0.15)";bd="var(--yellow)";}else{lbl="\ud83c\udf7d Disponible";col="var(--text2)";bg="var(--surface2)";bd="var(--border)";}return h("button",{onClick:e=>openAvail(r,e),style:{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,cursor:"pointer",border:"1px solid "+bd,background:bg,color:col}},lbl);})()
                   )
                 )
               );
