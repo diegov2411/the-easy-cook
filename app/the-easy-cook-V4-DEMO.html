@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.12";
+const APP_VERSION = "4.6.13";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.13", date:"Jul 2026", notes:"Control de cocina para agotar platos (86): desde Recetas, el chef puede marcar un plato como 'Agotado' o ponerle un 'límite de hoy' (N porciones que se descuentan al vender y se bloquea al llegar a 0; se reinicia cada día). En Ventas, el cajero lo ve claramente ('Agotado (cocina)' o 'quedan N') y puede forzarlo igual (candado suave), pero sabe que la cocina dijo que no hay más."},
   {v:"4.6.12", date:"Jul 2026", notes:"'Pegar lista' ahora entiende también el mensaje bonito de la lista de compra: ignora el encabezado, la fecha, el total y las líneas decorativas, y quita las viñetas. Puedes pegar el mensaje completo tal cual y solo quedan los productos."},
   {v:"4.6.11", date:"Jul 2026", notes:"La lista de compra que se envía por WhatsApp o se copia ahora se ve más ordenada: encabezado con el nombre del restaurante y la fecha escrita en palabras, productos con viñetas y total al pie. Dentro de la app verás una vista previa exacta del mensaje antes de enviarlo."},
   {v:"4.6.10", date:"Jul 2026", notes:"Nueva función en Compras: 'Armar lista de compra'. Arma tu lista (empieza con lo que está bajo mínimo, con cantidad sugerida), edítala libremente y envíasela por WhatsApp o cópiala a quien hace las compras. Cuando llegue el pedido, 'Registrar al llegar' la pasa a 'Pegar lista' para sumarla al stock con los precios."},
@@ -19552,6 +19553,14 @@ function Recipes({data,setData,toast}){
   const [rManageModal,setRManageModal]=useState(false);
   const [editingRecipe,setEditingRecipe]=useState(null);
   const [rDeleteConfirm,setRDeleteConfirm]=useState(null);
+  // ── dish availability (kitchen 86 + daily limit) ─────────────────────────────
+  const [availModal,setAvailModal]=useState(null);   // recipe id
+  const [limitInput,setLimitInput]=useState("");
+  const setRecipeAvail=(id,patch)=>setData(d=>({...d,recipes:d.recipes.map(x=>x.id===id?{...x,...patch}:x)}));
+  const openAvail=(r,e)=>{e.stopPropagation();setAvailModal(r.id);setLimitInput(r.limitDate===today()&&typeof r.dailyLimit==="number"?String(r.dailyLimit):"");};
+  const toggleSoldOut=(r)=>{setRecipeAvail(r.id,{soldOut:!r.soldOut});toast(!r.soldOut?"Plato marcado como agotado":"Plato disponible de nuevo",!r.soldOut?"info":"success");};
+  const saveLimit=(r)=>{const n=+limitInput;if(limitInput&&n>0){setRecipeAvail(r.id,{dailyLimit:n,limitDate:today()});toast("Límite de hoy: "+n+" porciones","success");}};
+  const clearLimit=(r)=>{setRecipeAvail(r.id,{dailyLimit:null,limitDate:null});setLimitInput("");toast("Límite quitado","info");};
 
   // ── sub-recipe state ─────────────────────────────────────────────────────────
   const [srView,setSrView]=useState("list");
@@ -19851,7 +19860,8 @@ function Recipes({data,setData,toast}){
                     h(Badge,{color:cp>getFCTWarn(data)?"red":cp>getFCT(data)?"yellow":"green"},fmtPct(cp)),
                     h("div",{style:{fontSize:10,color:"var(--text3)"}},"costo real"),
                     _listSettings.igvMode!=="ninguno"&&h("div",{style:{fontSize:10,color:"var(--text3)",opacity:0.7}},fmtPct(cpGross)+" carta"),
-                    h("button",{onClick:e=>openEditRecipe(r,e),style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar")
+                    h("button",{onClick:e=>openEditRecipe(r,e),style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar"),
+                    (()=>{const av=dishAvailability(r,data.orders||[],data.orderLines||[]);const lbl=av.soldOut?"\ud83d\udeab Agotado":(av.limited?(av.remaining>0?"Quedan "+av.remaining:"Sin m\u00e1s"):"Disponibilidad");const col=av.blocked?"var(--red)":(av.limited?"var(--yellow)":"var(--text3)");return h("button",{onClick:e=>openAvail(r,e),style:{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,cursor:"pointer",border:"1px solid "+col+"55",background:col+"18",color:col,marginTop:2}},lbl);})()
                   )
                 )
               );
@@ -19863,6 +19873,30 @@ function Recipes({data,setData,toast}){
         onRename:(orig,nw)=>{setData(d=>({...d,recipeCategories:(d.recipeCategories||[]).map(c=>c===orig?nw:c),recipes:d.recipes.map(r=>r.category===orig?{...r,category:nw}:r)}));if(rFilterCat===orig)setRFilterCat(nw);toast(`Renombrada a "${nw}"`,"success");},
         onDelete:cat=>{if(recipes.some(r=>r.category===cat)){toast(`Elimina las recetas de "${cat}" primero`,"error");return;}setData(d=>({...d,recipeCategories:(d.recipeCategories||[]).filter(c=>c!==cat)}));if(rFilterCat===cat)setRFilterCat("all");toast(`"${cat}" eliminada`,"info");}
       }),
+      // Dish availability modal — kitchen 86 + daily limit
+      h(Modal,{open:!!availModal,onClose:()=>setAvailModal(null),title:"Disponibilidad del plato"},
+        availModal&&(()=>{const r=recipes.find(x=>x.id===availModal);if(!r)return null;const av=dishAvailability(r,data.orders||[],data.orderLines||[]);const soldToday=dishSoldToday(r.id,data.orders||[],data.orderLines||[]);
+        return h(Fragment,null,
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:2}},r.name),
+          h('div',{style:{fontSize:12,color:"var(--text3)",lineHeight:1.5,marginBottom:16}},"Controla desde la cocina si se puede seguir vendiendo. El cajero podrá forzarlo igual, pero verá el aviso."),
+          h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"var(--surface2)",borderRadius:"var(--radius-sm)",padding:"12px 14px",marginBottom:12}},
+            h('div',{style:{flex:1}},
+              h('div',{style:{fontSize:13,fontWeight:700}},"🚫 Agotado (86)"),
+              h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.4,marginTop:2}},"Marca el plato como sin más porciones por hoy.")),
+            h('button',{onClick:()=>toggleSoldOut(r),style:{flexShrink:0,padding:"8px 16px",borderRadius:20,cursor:"pointer",fontFamily:"var(--sans)",fontSize:12,fontWeight:700,border:"1px solid",borderColor:r.soldOut?"var(--red)":"var(--border2)",background:r.soldOut?"rgba(239,68,68,0.15)":"transparent",color:r.soldOut?"var(--red)":"var(--text2)"}},r.soldOut?"🚫 Agotado":"Disponible")
+          ),
+          h('div',{style:{background:"var(--surface2)",borderRadius:"var(--radius-sm)",padding:"12px 14px",marginBottom:16}},
+            h('div',{style:{fontSize:13,fontWeight:700,marginBottom:2}},"🔢 Límite de hoy"),
+            h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.4,marginBottom:8}},"Porciones máximas para hoy. Se bloquea solo al llegar al límite y se reinicia cada día. · Vendidas hoy: "+soldToday+(av.limited?" de "+av.limit:"")),
+            h('div',{style:{display:"flex",gap:8}},
+              h('input',{type:"number",min:"1",value:limitInput,onChange:e=>setLimitInput(e.target.value),placeholder:"ej. 10",style:{flex:1}}),
+              h(Btn,{onClick:()=>saveLimit(r),variant:"secondary",disabled:!limitInput||+limitInput<=0},"Guardar"),
+              av.limited&&h(Btn,{variant:"ghost",onClick:()=>clearLimit(r)},"Quitar")
+            )
+          ),
+          h(Btn,{onClick:()=>setAvailModal(null),size:"lg",style:{width:"100%"}},"Listo")
+        );})()
+      ),
       // Recipe create/edit modal
       h(Modal,{open:rModal,onClose:()=>{setRModal(false);setEditingRecipe(null);},title:editingRecipe?"Editar receta":"Nueva receta"},
         h(FormRow,{label:"Nombre del plato"},h("input",{value:rForm.name||"",onChange:e=>setRForm({...rForm,name:e.target.value}),placeholder:"ej. Lomo Saltado"})),
@@ -21105,6 +21139,23 @@ function PurchasesTab({data,setData,toast}){
 }
 
 // ─── SALES ────────────────────────────────────────────────────────────────────
+// ─── DISH AVAILABILITY — kitchen "86" (sold out) + daily portion limit ───────
+// soldOut is a manual kitchen flag. dailyLimit (+ limitDate) is a per-day cap
+// that counts down as portions are ordered and resets when the day changes.
+function dishSoldToday(recipeId, orders, orderLines){
+  const t=today();
+  const ids=new Set((orders||[]).filter(o=>o.date===t).map(o=>o.id));
+  return (orderLines||[]).filter(l=>l.recipeId===recipeId&&ids.has(l.orderId)).reduce((s,l)=>s+(+l.qty||0),0);
+}
+function dishAvailability(r, orders, orderLines){
+  const soldOut=!!(r&&r.soldOut);
+  const limited=!!(r&&typeof r.dailyLimit==="number"&&r.limitDate===today());
+  const sold=limited?dishSoldToday(r.id,orders,orderLines):0;
+  const remaining=limited?Math.max(0,r.dailyLimit-sold):null;
+  const blocked=soldOut||(limited&&remaining<=0);
+  return {soldOut,limited,limit:limited?r.dailyLimit:null,sold,remaining,blocked};
+}
+
 function Sales({data,setData,toast}){
   const {orders=[],orderLines=[],recipes,products,bom,subBom=[],subRecipes=[]}=data;
   const [view,setView]=useState("list");
@@ -21172,10 +21223,10 @@ function Sales({data,setData,toast}){
   };
   const addDish=()=>{
     if(!addDishForm.recipeId||!addDishForm.qty)return;
-    if(!canMakeRecipe(addDishForm.recipeId,+addDishForm.qty,products,bom,subBom,subRecipes)){
-      setConfirmNoStockModal(true);
-      return;
-    }
+    const _r=recipes.find(x=>x.id===addDishForm.recipeId);
+    const _av=dishAvailability(_r,orders,orderLines);
+    const _noStock=!canMakeRecipe(addDishForm.recipeId,+addDishForm.qty,products,bom,subBom,subRecipes);
+    if(_av.blocked||_noStock){ setConfirmNoStockModal(true); return; }
     doAddDishLine(false);
   };
   const saveEditLine=()=>{
@@ -21421,8 +21472,16 @@ function Sales({data,setData,toast}){
         h(FormRow,{label:"Plato"},h('select',{value:addDishForm.recipeId||"",onChange:e=>setAddDishForm({...addDishForm,recipeId:e.target.value})},
           [h('option',{key:"",value:""},"Seleccionar plato..."),
           ...recipes.filter(r=>!addDishForm.cat||addDishForm.cat==="all"||r.category===addDishForm.cat)
-            .map(r=>{const av=canMakeRecipe(r.id,1,products,bom);return h('option',{key:r.id,value:r.id},`${av?"":"⚠️ "}${r.name} · ${fmtCost(r.price)}${!av?" — Sin stock teórico":""}`);})]
+            .map(r=>{const stock=canMakeRecipe(r.id,1,products,bom);const av=dishAvailability(r,orders,orderLines);let tag="",icon="";if(av.soldOut){icon="🚫 ";tag=" — Agotado (cocina)";}else if(av.limited&&av.remaining<=0){icon="🚫 ";tag=" — Sin más porciones";}else if(av.limited){tag=" — quedan "+av.remaining;}else if(!stock){icon="⚠️ ";tag=" — Sin stock teórico";}return h('option',{key:r.id,value:r.id},`${icon}${r.name} · ${fmtCost(r.price)}${tag}`);})]
         )),
+        addDishForm.recipeId&&(()=>{
+          const _r=recipes.find(x=>x.id===addDishForm.recipeId);const av=dishAvailability(_r,orders,orderLines);
+          const box=(bg,bd,col,txt)=>h('div',{style:{background:bg,border:"1px solid "+bd,borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,fontWeight:600,color:col}},txt);
+          if(av.soldOut) return box("rgba(239,68,68,0.1)","rgba(239,68,68,0.35)","var(--red)","🚫 La cocina marcó este plato como AGOTADO (sin más porciones).");
+          if(av.limited&&av.remaining<=0) return box("rgba(239,68,68,0.1)","rgba(239,68,68,0.35)","var(--red)","🚫 Se alcanzó el límite de hoy para este plato ("+av.sold+"/"+av.limit+").");
+          if(av.limited) return box("rgba(234,179,8,0.1)","rgba(234,179,8,0.3)","var(--yellow)","🔢 Quedan "+av.remaining+" porción"+(av.remaining!==1?"es":"")+" de hoy (límite "+av.limit+").");
+          return null;
+        })(),
         addDishForm.recipeId&&addDishForm.qty&&(()=>{
           const miss=getMissingIngredients(addDishForm.recipeId,+addDishForm.qty||1,products,bom,subBom,subRecipes);
           return miss.length>0&&h('div',{style:{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 12px",marginBottom:12}},
@@ -21439,17 +21498,26 @@ function Sales({data,setData,toast}){
           h(Btn,{variant:"ghost",onClick:()=>setAddDishModal(false)},"Cancelar")
         )
       ),
-      h(Modal,{open:confirmNoStockModal,onClose:()=>setConfirmNoStockModal(false),title:"⚠️ Sin stock teórico suficiente"},
-        h('div',{style:{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.6}},
-          "Según el stock registrado en el sistema, no alcanza para preparar este plato. Esto puede pasar si el stock real en cocina es distinto al teórico — por ejemplo, si llegó una compra que aún no se registró, o el conteo está desactualizado.",
-          h('br'),h('br'),
-          "¿Quieres agregarlo al pedido de todas formas?"
-        ),
-        h('div',{style:{display:"flex",gap:8}},
-          h(Btn,{onClick:()=>doAddDishLine(true),style:{flex:1},size:"lg"},"Sí, agregar de todas formas"),
-          h(Btn,{variant:"ghost",onClick:()=>setConfirmNoStockModal(false)},"Cancelar")
-        )
-      ),
+      (()=>{
+        const _r=recipes.find(x=>x.id===addDishForm.recipeId);const av=_r?dishAvailability(_r,orders,orderLines):{};
+        const reason=av.soldOut?"soldout":(av.limited&&av.remaining<=0?"limit":"stock");
+        const title=reason==="soldout"?"🚫 Plato agotado (cocina)":reason==="limit"?"🚫 Límite de hoy alcanzado":"⚠️ Sin stock teórico suficiente";
+        const msg=reason==="soldout"
+          ?"La cocina marcó este plato como agotado — no hay más porciones. "
+          :reason==="limit"
+          ?("Se alcanzó el límite de porciones que la cocina fijó para hoy ("+av.sold+" de "+av.limit+"). ")
+          :"Según el stock registrado en el sistema, no alcanza para preparar este plato. Esto puede pasar si el stock real en cocina es distinto al teórico — por ejemplo, si llegó una compra que aún no se registró, o el conteo está desactualizado. ";
+        return h(Modal,{open:confirmNoStockModal,onClose:()=>setConfirmNoStockModal(false),title},
+          h('div',{style:{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.6}},
+            msg,h('br'),h('br'),
+            "¿Quieres agregarlo al pedido de todas formas?"
+          ),
+          h('div',{style:{display:"flex",gap:8}},
+            h(Btn,{onClick:()=>doAddDishLine(true),style:{flex:1},size:"lg"},"Sí, agregar de todas formas"),
+            h(Btn,{variant:"ghost",onClick:()=>setConfirmNoStockModal(false)},"Cancelar")
+          )
+        );
+      })(),
       h(Modal,{open:editLineModal,onClose:()=>setEditLineModal(false),title:"Editar línea"},
         editLineForm.recipeId&&(()=>{const r=recipes.find(r=>r.id===editLineForm.recipeId);return h(Fragment,null,
           h('div',{style:{fontSize:14,fontWeight:500,marginBottom:12}},r?.name),
