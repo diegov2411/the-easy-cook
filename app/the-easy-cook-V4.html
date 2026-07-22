@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.8.2";
+const APP_VERSION = "4.8.3";
 const APP_BUILD   = "Sprint 17 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.8.3", date:"Jul 2026", notes:"Fechas en formato peruano (día/mes/año) en toda la app — descuentos, ventas por día, compras, mermas, producción e historial. Además, el filtro de la lista de Descuentos ahora es un selector completo: atajos (Hoy, Ayer, Últimos 7 días, Este mes, Todos) y un rango Desde/Hasta con calendario."},
   {v:"4.8.2", date:"Jul 2026", notes:"Descuentos más rápidos para el cajero: en el 'Ajuste' de un pedido, botones de un toque para 5/10/15/20% (calcula el monto solo) y motivos rápidos (Cliente frecuente, Cortesía, Promoción, Reclamo). Nueva pestaña 'Descuentos' en Ventas & Caja con la lista de todos los descuentos dados — mesa, monto, %, motivo, quién lo aplicó y si el pedido está abierto o cerrado — con total y filtro Hoy/Mes/Todos."},
   {v:"4.8.1", date:"Jul 2026", notes:"El botón de disponibilidad de cada receta (Disponible / 🚫 Agotado / Quedan N) ahora es tan visible como el botón Editar."},
   {v:"4.8.0", date:"Jul 2026", notes:"Control de cocina para agotar platos (86): desde Recetas, el chef puede marcar un plato como 'Agotado' o ponerle un 'límite de hoy' (N porciones que se descuentan al vender y se bloquea al llegar a 0; se reinicia cada día). En Ventas, el cajero lo ve claramente ('Agotado (cocina)' o 'quedan N') y puede forzarlo igual (candado suave), pero sabe que la cocina dijo que no hay más."},
@@ -17497,6 +17498,7 @@ const fmtCost = n=>`S/ ${(+n||0).toFixed(2)}`;
 const fmtPct  = n=>`${((+n||0)*100).toFixed(1)}%`;
 const fmtNum  = n=>(+n||0)%1===0?String(+n||0):(+n||0).toFixed(2);
 const today   = ()=>new Date().toISOString().slice(0,10);
+const fmtDate = iso=>{if(!iso||typeof iso!=="string")return iso||"";const p=iso.slice(0,10).split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso;};
 const uid     = ()=>Math.random().toString(36).slice(2,8).toUpperCase();
 
 // ─── IGV HELPERS ─────────────────────────────────────────────────────────────
@@ -18840,7 +18842,7 @@ function WastagePanel({wastageLog,setData,toast}){
               h('div',{style:{display:"flex",flexWrap:"wrap",gap:6,marginBottom:w.note?4:0}},
                 h('span',{style:{fontSize:11,color:"var(--text3)",background:"var(--surface2)",borderRadius:4,padding:"1px 6px"}},`${fmtNum(w.qty)} ${w.unit}`),
                 h('span',{style:{fontSize:11,color:meta.color,background:"rgba(0,0,0,0.2)",borderRadius:4,padding:"1px 6px",fontWeight:500}},w.reason),
-                h('span',{style:{fontSize:11,color:"var(--text3)"}},w.date)
+                h('span',{style:{fontSize:11,color:"var(--text3)"}},fmtDate(w.date))
               ),
               w.note&&h('div',{style:{fontSize:11,color:"var(--text2)",fontStyle:"italic"}},`"${w.note}"`)
             ),
@@ -20422,7 +20424,7 @@ function PurchaseDayGroups({sorted,products,data,statusColor,changeStatus}){
                 ),
                 // Desktop: extra columns — date of purchase + category
                 h('div',{className:"dt-col-desktop",style:{display:"none",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0,minWidth:80}},
-                  h('div',{style:{fontSize:11,color:"var(--text3)"}},pu.date),
+                  h('div',{style:{fontSize:11,color:"var(--text3)"}},fmtDate(pu.date)),
                   p?.category&&h(Badge,{color:"gray"},p.category)
                 ),
                 h('div',{style:{textAlign:"right",flexShrink:0}},
@@ -21062,7 +21064,7 @@ function Sales({data,setData,toast,currentUser}){
             h(Badge,{color:isOpen?"yellow":"green"},isOpen?"Abierto":"Cerrado")
           ),
           h('div',{style:{fontSize:13,color:"var(--text2)",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
-            `Mesa ${ord.tableNum} · ${ord.date}${ord.waiter?" · "+ord.waiter:""} · `,
+            `Mesa ${ord.tableNum} · ${fmtDate(ord.date)}${ord.waiter?" · "+ord.waiter:""} · `,
             h('span',null,`${ord.pax||0} persona${ord.pax===1?"":"s"}`),
             isOpen&&h('button',{onClick:()=>{setPaxForm({pax:ord.pax||""});setPaxModal(true);},style:{background:"none",border:"none",color:"var(--accent)",fontSize:11,padding:0,cursor:"pointer"}},"editar")
           )
@@ -21358,7 +21360,7 @@ function Sales({data,setData,toast,currentUser}){
         return h('div',{key:date,style:{marginBottom:22}},
           h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--border)"}},
             h('div',null,
-              h('span',{style:{fontSize:13,fontWeight:600,color:"var(--text2)"}},date),
+              h('span',{style:{fontSize:13,fontWeight:600,color:"var(--text2)"}},fmtDate(date)),
               dayPax>0&&h('span',{style:{fontSize:11,color:"var(--text3)",marginLeft:8}},`👥 ${dayPax} persona${dayPax===1?"":"s"}`)
             ),
             h('div',{style:{display:"flex",gap:8,alignItems:"center"}},
@@ -21554,7 +21556,7 @@ function ProduccionTab({data,setData,toast}){
           h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
             h('div',null,
               h('div',{style:{fontSize:13,fontWeight:600}},e.subRecipeName),
-              h('div',{style:{fontSize:11,color:"var(--text3)"}},e.date+" · ≈"+e.batches+" batch"+(e.batches!==1?"es":"")+(e.note?" · "+e.note:""))
+              h('div',{style:{fontSize:11,color:"var(--text3)"}},fmtDate(e.date)+" · ≈"+e.batches+" batch"+(e.batches!==1?"es":"")+(e.note?" · "+e.note:""))
             ),
             h(Badge,{color:"purple"},"+"+e.yieldQty+" "+e.yieldUnit)
           )
@@ -21999,7 +22001,7 @@ function LedgerProductCard({p,theo,rows,avgCost}){
         padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",
         fontSize:12,color:row.type==="Venta"?"var(--red)":row.type==="Compra"?"var(--green)":"var(--text2)"
       }},
-        h('span',{style:{color:"var(--text3)"}},row.date||"—"),
+        h('span',{style:{color:"var(--text3)"}},row.date?fmtDate(row.date):"—"),
         h('span',null,row.label),
         h('span',{style:{textAlign:"right",fontWeight:500}},
           row.type==="Apertura"?fmtNum(row.qty):(row.qty>0?"+":"")+fmtNum(row.qty)
@@ -22676,20 +22678,33 @@ function SalesRecon({data,setData,toast,currentUser}){
 // ─── DISCOUNTS LIST — every discount given, for cashier speed + owner oversight ─
 function DiscountsTab({data}){
   const {orders=[]}=data;
-  const [period,setPeriod]=useState("today");
-  const t=today();const mp=t.slice(0,7);
+  const t=today();
+  const isoOf=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  const yest=(()=>{const d=new Date();d.setDate(d.getDate()-1);return isoOf(d);})();
+  const wk=(()=>{const d=new Date();d.setDate(d.getDate()-6);return isoOf(d);})();
+  const monthStart=t.slice(0,7)+"-01";
+  const [dateFrom,setDateFrom]=useState(t);
+  const [dateTo,setDateTo]=useState(t);
+  const presets=[{label:"Hoy",from:t,to:t},{label:"Ayer",from:yest,to:yest},{label:"Últimos 7 días",from:wk,to:t},{label:"Este mes",from:monthStart,to:t},{label:"Todos",from:"",to:""}];
   const all=orders.filter(o=>(o.priceAdj||0)<0);
-  const disc=all.filter(o=>period==="today"?o.date===t:period==="month"?(o.date||"").startsWith(mp):true)
+  const disc=all.filter(o=>{const d=o.date||"";if(dateFrom&&d<dateFrom)return false;if(dateTo&&d>dateTo)return false;return true;})
     .sort((a,b)=>((b.date||"")+(b.code||"")).localeCompare((a.date||"")+(a.code||"")));
   const total=disc.reduce((s,o)=>s+Math.abs(o.priceAdj||0),0);
+  const rangeLabel=(!dateFrom&&!dateTo)?"Todos los descuentos":(dateFrom&&dateTo&&dateFrom===dateTo)?fmtDate(dateFrom):(dateFrom?fmtDate(dateFrom):"inicio")+" → "+(dateTo?fmtDate(dateTo):"hoy");
   return h('div',null,
-    h('div',{style:{display:"flex",gap:6,marginBottom:12}},
-      [{id:"today",label:"Hoy"},{id:"month",label:"Este mes"},{id:"all",label:"Todos"}].map(p=>h('button',{key:p.id,onClick:()=>setPeriod(p.id),style:{
+    h('div',{style:{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2}},
+      presets.map(p=>{const active=dateFrom===p.from&&dateTo===p.to;return h('button',{key:p.label,onClick:()=>{setDateFrom(p.from);setDateTo(p.to);},style:{
         padding:"5px 13px",borderRadius:20,border:"1px solid",cursor:"pointer",fontFamily:"var(--sans)",fontSize:12,fontWeight:500,whiteSpace:"nowrap",
-        borderColor:period===p.id?"var(--accent)":"var(--border2)",background:period===p.id?"rgba(249,115,22,0.15)":"transparent",color:period===p.id?"var(--accent)":"var(--text2)"}},p.label))
+        borderColor:active?"var(--accent)":"var(--border2)",background:active?"rgba(249,115,22,0.15)":"transparent",color:active?"var(--accent)":"var(--text2)"}},p.label);})
+    ),
+    h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+      h('div',null,h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:4}},"Desde"),h(DatePicker,{value:dateFrom,onChange:v=>{setDateFrom(v);if(dateTo&&v>dateTo)setDateTo(v);}})),
+      h('div',null,h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:4}},"Hasta"),h(DatePicker,{value:dateTo,onChange:v=>{setDateTo(v);if(dateFrom&&v<dateFrom)setDateFrom(v);}}))
     ),
     h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"12px 14px",marginBottom:14}},
-      h('div',{style:{fontSize:12,color:"var(--text2)"}},disc.length+" descuento"+(disc.length!==1?"s":"")),
+      h('div',{style:{minWidth:0}},
+        h('div',{style:{fontSize:12,color:"var(--text2)"}},disc.length+" descuento"+(disc.length!==1?"s":"")),
+        h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:1}},rangeLabel)),
       h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800,color:"var(--green)"}},"− "+fmtCost(total))
     ),
     disc.length===0
@@ -22700,7 +22715,7 @@ function DiscountsTab({data}){
             h('div',{style:{minWidth:0}},
               h('div',{style:{fontSize:13,fontWeight:600}},"Mesa "+(o.tableNum||"?")+" · "+(o.code||o.id)),
               h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:2}},
-                (o.date||"")+(o.adjBy?" · "+o.adjBy:"")+" · "+(o.status==="closed"?"Cerrado":"Abierto"))
+                fmtDate(o.date)+(o.adjBy?" · "+o.adjBy:"")+" · "+(o.status==="closed"?"Cerrado":"Abierto"))
             ),
             h('div',{style:{textAlign:"right",flexShrink:0}},
               h('div',{style:{fontSize:14,fontWeight:700,color:"var(--green)"}},"− "+fmtCost(Math.abs(o.priceAdj||0))),
@@ -23193,7 +23208,7 @@ function MonthlyPL({data}){
             padding:"9px 14px",borderBottom:i<mWastage.length-1?"1px solid var(--border)":"none",fontSize:12}},
             h('div',null,
               h('div',{style:{fontWeight:500}},w.productName),
-              h('div',{style:{fontSize:10,color:"var(--text3)"}},w.reason+" · "+w.date)
+              h('div',{style:{fontSize:10,color:"var(--text3)"}},w.reason+" · "+fmtDate(w.date))
             ),
             h('div',{style:{textAlign:"right",color:"var(--red)",fontWeight:700}},
               "− "+fmtCost(w.lostValue))
@@ -23511,7 +23526,7 @@ function IngredientTrend({data}){
               background:color,opacity:0.6,borderRadius:2,transition:"width .5s ease"}})
           ),
           h('div',{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:3}},
-            h('span',null,hist[0].date+" — "+hist[hist.length-1].date),
+            h('span',null,fmtDate(hist[0].date)+" — "+fmtDate(hist[hist.length-1].date)),
             h('span',null,hist.length+" puntos de precio")
           )
         );
