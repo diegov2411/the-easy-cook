@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.9.1";
+const APP_VERSION = "4.9.2";
 const APP_BUILD   = "Sprint 18 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.9.2", date:"Jul 2026", notes:"Dos secciones más en el 'Informe completo': un gráfico de barras con la tendencia de ventas de los últimos 6 meses (con el promedio marcado y una tabla de apoyo con ventas netas, pedidos y costo % de cada mes), y 'Formas de pago' — cuánto entró por Yape, efectivo y tarjeta en el mes, con el % de cada uno y la diferencia contra lo registrado en la app. Ambas salen también en el PDF."},
   {v:"4.9.1", date:"Jul 2026", notes:"El 'Informe completo' ahora trae más análisis: comparación con el mes anterior (ventas netas, costo de alimentos %, margen, pedidos y ticket — con flechas de mejora/caída), ventas por día de la semana (con el mejor día del mes) y ventas por categoría. Además Reportes queda más ordenado: se unieron 'P&L Mensual' y 'Resumen Mensual' dentro del Informe completo, dejando 3 pestañas claras — Informe completo, Semanal y Costos."},
   {v:"4.9.0", date:"Jul 2026", notes:"Nuevo 'Informe completo' en Reportes: un informe mensual de gestión en un solo documento — portada (restaurante, RUC, fecha), resumen ejecutivo, estado de resultados (P&L), ventas por semana, platos más vendidos, compras, mermas y descuentos. El botón 'Descargar PDF' lo guarda como un PDF completo listo para enviar (a tu contador, por ejemplo), no una captura de lo que se ve en pantalla."},
   {v:"4.8.3", date:"Jul 2026", notes:"Fechas en formato peruano (día/mes/año) en toda la app — descuentos, ventas por día, compras, mermas, producción e historial. Además, el filtro de la lista de Descuentos ahora es un selector completo: atajos (Hoy, Ayer, Últimos 7 días, Este mes, Todos) y un rango Desde/Hasta con calendario."},
@@ -24213,7 +24214,7 @@ Responde en español. Sé conciso pero completo. No repitas los datos, interprè
 // FULL REPORT — a complete, print-ready monthly document (not a screen copy)
 // ─────────────────────────────────────────────────────────────────────────────
 function FullReport({data}){
-  const {products,recipes,bom,orders=[],orderLines=[],subBom=[],subRecipes=[],purchases=[],wastageLog=[]}=data;
+  const {products,recipes,bom,orders=[],orderLines=[],subBom=[],subRecipes=[],purchases=[],wastageLog=[],paymentRecons=[]}=data;
   const now=new Date();
   const [selYear,setSelYear]=useState(now.getFullYear());
   const [selMonth,setSelMonth]=useState(now.getMonth()+1);
@@ -24287,6 +24288,16 @@ function FullReport({data}){
     return {nr,fcPct:nr>0?fc/nr*100:0,gm:nr-fc,orders:os.length,ticket:os.length>0?rev/os.length:0};
   }
   const prev=calcMonthKPIs(prevY,prevM);
+  // ── 6-month sales trend ──
+  const trend6=[];
+  for(let i=5;i>=0;i--){
+    let ty=selYear,tm=selMonth-i;while(tm<1){tm+=12;ty--;}
+    const k=calcMonthKPIs(ty,tm);
+    trend6.push({label:MONTHS_ES[tm-1].slice(0,3),year:ty,cur:i===0,nr:k.nr,fcPct:k.fcPct,orders:k.orders});
+  }
+  const trendMax=Math.max(1,...trend6.map(t=>t.nr));
+  const trendActive=trend6.filter(t=>t.nr>0);
+  const trendAvg=trendActive.length?trendActive.reduce((s,t)=>s+t.nr,0)/trendActive.length:0;
   // ── Sales by day of week ──
   const DOW=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
   const dowRev=[0,0,0,0,0,0,0],dowCount=[0,0,0,0,0,0,0];
@@ -24297,6 +24308,15 @@ function FullReport({data}){
   const catAgg={};
   mLines.forEach(l=>{const r=recipes.find(x=>x.id===l.recipeId);if(!r)return;const cat=r.category||"Sin categoría";const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!catAgg[cat])catAgg[cat]={rev:0,margin:0,units:0};catAgg[cat].rev+=r.price*l.qty;catAgg[cat].margin+=(net-fc)*l.qty;catAgg[cat].units+=l.qty;});
   const catRows=Object.entries(catAgg).sort((a,b)=>b[1].rev-a[1].rev);
+  // ── Payment methods (from Cuadre de Caja) ──
+  const mRecons=(paymentRecons||[]).filter(pr=>inRange(pr.date,start,end));
+  const payYape=mRecons.reduce((s,p)=>s+(+p.yape||0),0);
+  const payCash=mRecons.reduce((s,p)=>s+(+p.cash||0),0);
+  const payCard=mRecons.reduce((s,p)=>s+(+p.card||0),0);
+  const payTotal=payYape+payCash+payCard;
+  const payEasy=mRecons.reduce((s,p)=>s+(+p.easyTotal||0),0);
+  const payDiff=payTotal-payEasy;
+  const payRows=[["Yape",payYape],["Efectivo",payCash],["Tarjeta",payCard]];
 
   // ── render helpers ──
   const section=(title,...kids)=>h('div',{className:"print-section",style:{marginBottom:18}},
@@ -24319,6 +24339,24 @@ function FullReport({data}){
       ["Métrica","Este mes","Mes ant.","Variación"].map((hd,i)=>h('span',{key:i,style:{textAlign:i===0?"left":"right"}},hd))),
     rows.map((r,ri)=>{const v=variation(r.cur,r.prev,r.higher);return h('div',{key:ri,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:4,padding:"5px 10px",borderTop:"1px solid var(--border)",fontSize:11}},
       h('span',null,r.label),h('span',{style:{textAlign:"right",fontWeight:600}},r.fmt(r.cur)),h('span',{style:{textAlign:"right",color:"var(--text3)"}},r.fmt(r.prev)),h('span',{style:{textAlign:"right",fontWeight:700,color:v.col}},v.txt));}));
+  const barChart=(rows,max,avg)=>{
+    const W=620,H=180,padT=24,padB=36,padX=10;
+    const usable=H-padT-padB,bw=(W-padX*2)/rows.length;
+    const avgY=max>0?padT+usable-avg/max*usable:padT+usable;
+    return h('div',{style:{border:"1px solid var(--border)",borderRadius:8,padding:"8px 6px 2px",background:"var(--surface2)"}},
+      h('svg',{viewBox:`0 0 ${W} ${H}`,style:{width:"100%",height:"auto",display:"block"}},
+        h('line',{x1:padX,y1:padT+usable,x2:W-padX,y2:padT+usable,stroke:"var(--border2)",strokeWidth:1}),
+        avg>0&&h('line',{x1:padX,y1:avgY,x2:W-padX,y2:avgY,stroke:"var(--text3)",strokeWidth:1,strokeDasharray:"4 4",opacity:0.6}),
+        rows.map((r,i)=>{
+          const bh=max>0?Math.max(2,r.nr/max*usable):2;
+          const x=padX+i*bw+bw*0.22,w=bw*0.56,y=padT+usable-bh;
+          return h(Fragment,{key:i},
+            h('rect',{x,y,width:w,height:bh,rx:3,fill:"var(--accent)",opacity:r.cur?1:0.38}),
+            r.nr>0&&h('text',{x:x+w/2,y:y-6,textAnchor:"middle",fontSize:11,fontWeight:r.cur?700:500,fill:"var(--text2)"},"S/ "+Math.round(r.nr)),
+            h('text',{x:x+w/2,y:H-19,textAnchor:"middle",fontSize:12,fontWeight:r.cur?700:400,fill:"var(--text2)"},r.label),
+            h('text',{x:x+w/2,y:H-6,textAnchor:"middle",fontSize:10,fill:"var(--text3)"},String(r.year)));
+        })));
+  };
   const navBtn={background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:8,width:32,height:32,cursor:"pointer",color:"var(--text2)",fontSize:16};
 
   return h('div',{className:"slide-up"},
@@ -24378,6 +24416,12 @@ function FullReport({data}){
               {label:"Ticket por pedido",cur:ticketOrder,prev:prev.ticket,fmt:fmtCost,higher:true}
             ])
           ),
+          section("Tendencia de ventas — últimos 6 meses"+(trendAvg>0?" (promedio "+fmtCost(trendAvg)+")":""),
+            barChart(trend6,trendMax,trendAvg),
+            h('div',{style:{marginTop:8}},
+              table(["Mes","Ventas netas","Pedidos","Costo %"],
+                trend6.map(t=>[t.label+" "+t.year,fmtCost(t.nr),String(t.orders),(t.nr>0?t.fcPct.toFixed(1)+"%":"—")])))
+          ),
           section("Ventas por semana",
             table(["Semana","Rango","Pedidos","Ingresos","Costo %"],
               weeks.map(w=>[w.label,fmtDate(w.from)+" – "+fmtDate(w.to),String(w.orders),fmtCost(w.rev),(w.rev>0?(w.fc/netBase(w.rev,S.igvMode)*100).toFixed(1)+"%":"—")]))
@@ -24395,6 +24439,16 @@ function FullReport({data}){
             catRows.length===0?empty("Sin ventas"):
             table(["Categoría","Unid.","Ingresos","% ventas","Margen"],
               catRows.map(([c,v])=>[c,fmtNum(v.units),fmtCost(v.rev),(revenue>0?v.rev/revenue*100:0).toFixed(0)+"%",fmtCost(v.margin)]))
+          ),
+          section("Formas de pago"+(mRecons.length>0?" — "+mRecons.length+(mRecons.length===1?" día cuadrado":" días cuadrados"):""),
+            mRecons.length===0?empty("No hay cuadres de caja registrados en este mes"):
+            h(Fragment,null,
+              table(["Forma de pago","Total","% del total"],
+                payRows.map(r=>[r[0],fmtCost(r[1]),(payTotal>0?(r[1]/payTotal*100).toFixed(0)+"%":"—")])
+                  .concat([["Total cobrado",fmtCost(payTotal),"100%"]])),
+              h('div',{style:{marginTop:8,fontSize:11,color:Math.abs(payDiff)<1?"var(--text3)":"var(--yellow)"}},
+                "Ventas registradas en la app esos días: "+fmtCost(payEasy)+"  ·  Diferencia: "+(payDiff>0?"+":"")+fmtCost(payDiff))
+            )
           ),
           section("Compras del mes — "+fmtCost(purchaseCost),
             Object.keys(purchByCat).length===0?empty("Sin compras registradas"):
