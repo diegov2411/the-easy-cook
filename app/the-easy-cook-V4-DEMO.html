@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.17";
+const APP_VERSION = "4.6.18";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.18", date:"Jul 2026", notes:"El 'Informe completo' ahora trae más análisis: comparación con el mes anterior (ventas netas, costo de alimentos %, margen, pedidos y ticket — con flechas de mejora/caída), ventas por día de la semana (con el mejor día del mes) y ventas por categoría. Además Reportes queda más ordenado: se unieron 'P&L Mensual' y 'Resumen Mensual' dentro del Informe completo, dejando 3 pestañas claras — Informe completo, Semanal y Costos."},
   {v:"4.6.17", date:"Jul 2026", notes:"Nuevo 'Informe completo' en Reportes: un informe mensual de gestión en un solo documento — portada (restaurante, RUC, fecha), resumen ejecutivo, estado de resultados (P&L), ventas por semana, platos más vendidos, compras, mermas y descuentos. El botón 'Descargar PDF' lo guarda como un PDF completo listo para enviar (a tu contador, por ejemplo), no una captura de lo que se ve en pantalla."},
   {v:"4.6.16", date:"Jul 2026", notes:"Fechas en formato peruano (día/mes/año) en toda la app — descuentos, ventas por día, compras, mermas, producción e historial. Además, el filtro de la lista de Descuentos ahora es un selector completo: atajos (Hoy, Ayer, Últimos 7 días, Este mes, Todos) y un rango Desde/Hasta con calendario."},
   {v:"4.6.15", date:"Jul 2026", notes:"Descuentos más rápidos para el cajero: en el 'Ajuste' de un pedido, botones de un toque para 5/10/15/20% (calcula el monto solo) y motivos rápidos (Cliente frecuente, Cortesía, Promoción, Reclamo). Nueva pestaña 'Descuentos' en Ventas & Caja con la lista de todos los descuentos dados — mesa, monto, %, motivo, quién lo aplicó y si el pedido está abierto o cerrado — con total y filtro Hoy/Mes/Todos."},
@@ -24545,6 +24546,29 @@ function FullReport({data}){
     weeks.push({label:"Sem "+(weeks.length+1),from:wStart,to:wEnd,rev:wRev,fc:wFC,orders:wOrders.length});
     cur=new Date(cur.getTime()+7*86400000);
   }
+  // ── Comparison vs previous month ──
+  const prevY=selMonth===1?selYear-1:selYear, prevM=selMonth===1?12:selMonth-1;
+  const prevLabel=MONTHS_ES[prevM-1]+" "+prevY;
+  function calcMonthKPIs(y,m){
+    const st=`${y}-${pad(m)}-01`;const ld=new Date(y,m,0).getDate();const en=`${y}-${pad(m)}-${pad(ld)}`;
+    const os=orders.filter(o=>o.status==="closed"&&inRange(o.date,st,en));
+    const ls=orderLines.filter(l=>os.some(o=>o.id===l.orderId));
+    const rev=ls.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const fc=ls.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
+    const ig=S.igvMode==="incluido"?rev-rev/1.18:S.igvMode==="excluido"?rev*IGV_RATE:0;const nr=rev-ig;
+    return {nr,fcPct:nr>0?fc/nr*100:0,gm:nr-fc,orders:os.length,ticket:os.length>0?rev/os.length:0};
+  }
+  const prev=calcMonthKPIs(prevY,prevM);
+  // ── Sales by day of week ──
+  const DOW=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+  const dowRev=[0,0,0,0,0,0,0],dowCount=[0,0,0,0,0,0,0];
+  mOrders.forEach(o=>{const di=new Date(o.date+"T12:00:00").getDay();const oRev=mLines.filter(l=>l.orderId===o.id).reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);dowRev[di]+=oRev;dowCount[di]++;});
+  const dowData=[1,2,3,4,5,6,0].map(di=>({dia:DOW[di],rev:dowRev[di],count:dowCount[di],pct:revenue>0?dowRev[di]/revenue*100:0}));
+  const bestDow=dowData.reduce((b,d)=>d.rev>b.rev?d:b,{rev:-1,dia:"—"});
+  // ── Sales by category ──
+  const catAgg={};
+  mLines.forEach(l=>{const r=recipes.find(x=>x.id===l.recipeId);if(!r)return;const cat=r.category||"Sin categoría";const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!catAgg[cat])catAgg[cat]={rev:0,margin:0,units:0};catAgg[cat].rev+=r.price*l.qty;catAgg[cat].margin+=(net-fc)*l.qty;catAgg[cat].units+=l.qty;});
+  const catRows=Object.entries(catAgg).sort((a,b)=>b[1].rev-a[1].rev);
 
   // ── render helpers ──
   const section=(title,...kids)=>h('div',{className:"print-section",style:{marginBottom:18}},
@@ -24561,6 +24585,12 @@ function FullReport({data}){
     rows.map((r,ri)=>h('div',{key:ri,style:{display:"grid",gridTemplateColumns:gridCols(headers.length),gap:4,padding:"5px 10px",borderTop:"1px solid var(--border)",fontSize:11}},
       r.map((c,ci)=>h('span',{key:ci,style:{textAlign:ci===0?"left":"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c)))));
   const empty=txt=>h('div',{style:{fontSize:12,color:"var(--text3)",fontStyle:"italic",padding:"8px 0"}},txt);
+  const variation=(cur,prv,higher)=>{if(!prv)return{txt:"—",col:"var(--text3)"};const dd=(cur-prv)/prv*100;const good=higher?dd>=0:dd<=0;const arrow=Math.abs(dd)<0.5?"→":(dd>0?"▲":"▼");return{txt:arrow+" "+(dd>0?"+":"")+dd.toFixed(0)+"%",col:Math.abs(dd)<0.5?"var(--text3)":(good?"var(--green)":"var(--red)")};};
+  const compareTable=rows=>h('div',{style:{border:"1px solid var(--border)",borderRadius:8,overflow:"hidden"}},
+    h('div',{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:4,padding:"6px 10px",background:"var(--surface2)",fontSize:10,fontWeight:700,color:"var(--text3)"}},
+      ["Métrica","Este mes","Mes ant.","Variación"].map((hd,i)=>h('span',{key:i,style:{textAlign:i===0?"left":"right"}},hd))),
+    rows.map((r,ri)=>{const v=variation(r.cur,r.prev,r.higher);return h('div',{key:ri,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:4,padding:"5px 10px",borderTop:"1px solid var(--border)",fontSize:11}},
+      h('span',null,r.label),h('span',{style:{textAlign:"right",fontWeight:600}},r.fmt(r.cur)),h('span',{style:{textAlign:"right",color:"var(--text3)"}},r.fmt(r.prev)),h('span',{style:{textAlign:"right",fontWeight:700,color:v.col}},v.txt));}));
   const navBtn={background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:8,width:32,height:32,cursor:"pointer",color:"var(--text2)",fontSize:16};
 
   return h('div',{className:"slide-up"},
@@ -24611,14 +24641,32 @@ function FullReport({data}){
             plRow("(−) Mermas",-wasteCost,netRevenue>0?wasteCost/netRevenue*100:0),
             plRow("Margen neto (contribución)",netContribution,netPct,true)
           ),
+          section("Comparación vs "+prevLabel,
+            compareTable([
+              {label:"Ventas netas",cur:netRevenue,prev:prev.nr,fmt:fmtCost,higher:true},
+              {label:"Costo de alimentos %",cur:foodCostPct,prev:prev.fcPct,fmt:v=>v.toFixed(1)+"%",higher:false},
+              {label:"Margen bruto",cur:grossMargin,prev:prev.gm,fmt:fmtCost,higher:true},
+              {label:"Pedidos",cur:mOrders.length,prev:prev.orders,fmt:v=>String(Math.round(v)),higher:true},
+              {label:"Ticket por pedido",cur:ticketOrder,prev:prev.ticket,fmt:fmtCost,higher:true}
+            ])
+          ),
           section("Ventas por semana",
             table(["Semana","Rango","Pedidos","Ingresos","Costo %"],
               weeks.map(w=>[w.label,fmtDate(w.from)+" – "+fmtDate(w.to),String(w.orders),fmtCost(w.rev),(w.rev>0?(w.fc/netBase(w.rev,S.igvMode)*100).toFixed(1)+"%":"—")]))
+          ),
+          section("Ventas por día de la semana"+(bestDow.rev>0?" — mejor: "+bestDow.dia:""),
+            table(["Día","Pedidos","Ingresos","% ventas"],
+              dowData.map(d=>[d.dia,String(d.count),fmtCost(d.rev),d.pct.toFixed(0)+"%"]))
           ),
           section("Platos más vendidos",
             topDishes.length===0?empty("Sin ventas en el período"):
             table(["Plato","Unid.","Ingresos","Margen","Costo %"],
               topDishes.slice(0,15).map(d=>[d.name,fmtNum(d.units),fmtCost(d.revenue),fmtCost(d.margin),(d.net>0?(d.fc/d.net*100).toFixed(1)+"%":"—")]))
+          ),
+          section("Ventas por categoría",
+            catRows.length===0?empty("Sin ventas"):
+            table(["Categoría","Unid.","Ingresos","% ventas","Margen"],
+              catRows.map(([c,v])=>[c,fmtNum(v.units),fmtCost(v.rev),(revenue>0?v.rev/revenue*100:0).toFixed(0)+"%",fmtCost(v.margin)]))
           ),
           section("Compras del mes — "+fmtCost(purchaseCost),
             Object.keys(purchByCat).length===0?empty("Sin compras registradas"):
@@ -24654,9 +24702,7 @@ function Reports({data}){
           tabs:[
             {id:"full",label:"📄 Informe completo"},
             {id:"weekly",label:"📅 Semanal"},
-            {id:"monthly",label:"📊 P&L Mensual"},
             {id:"trend",label:"📈 Costos"},
-            {id:"summary",label:"🧠 Resumen Mensual"},
           ],
           active:tab,setActive:setTab
         })
@@ -24673,9 +24719,7 @@ function Reports({data}){
     ),
     tab==="full"&&h(FullReport,{data}),
     tab==="weekly"&&h(WeeklyReport,{data}),
-    tab==="monthly"&&h(MonthlyPL,{data}),
-    tab==="trend"&&h(IngredientTrend,{data}),
-    tab==="summary"&&h(MonthlySummary,{data})
+    tab==="trend"&&h(IngredientTrend,{data})
   );
 }
 
