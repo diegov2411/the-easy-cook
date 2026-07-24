@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.8.3";
-const APP_BUILD   = "Sprint 17 — Julio 2026";
+const APP_VERSION = "4.9.0";
+const APP_BUILD   = "Sprint 18 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.9.0", date:"Jul 2026", notes:"Nuevo 'Informe completo' en Reportes: un informe mensual de gestión en un solo documento — portada (restaurante, RUC, fecha), resumen ejecutivo, estado de resultados (P&L), ventas por semana, platos más vendidos, compras, mermas y descuentos. El botón 'Descargar PDF' lo guarda como un PDF completo listo para enviar (a tu contador, por ejemplo), no una captura de lo que se ve en pantalla."},
   {v:"4.8.3", date:"Jul 2026", notes:"Fechas en formato peruano (día/mes/año) en toda la app — descuentos, ventas por día, compras, mermas, producción e historial. Además, el filtro de la lista de Descuentos ahora es un selector completo: atajos (Hoy, Ayer, Últimos 7 días, Este mes, Todos) y un rango Desde/Hasta con calendario."},
   {v:"4.8.2", date:"Jul 2026", notes:"Descuentos más rápidos para el cajero: en el 'Ajuste' de un pedido, botones de un toque para 5/10/15/20% (calcula el monto solo) y motivos rápidos (Cliente frecuente, Cortesía, Promoción, Reclamo). Nueva pestaña 'Descuentos' en Ventas & Caja con la lista de todos los descuentos dados — mesa, monto, %, motivo, quién lo aplicó y si el pedido está abierto o cerrado — con total y filtro Hoy/Mes/Todos."},
   {v:"4.8.1", date:"Jul 2026", notes:"El botón de disponibilidad de cada receta (Disponible / 🚫 Agotado / Quedan N) ahora es tan visible como el botón Editar."},
@@ -24207,8 +24208,166 @@ Responde en español. Sé conciso pero completo. No repitas los datos, interprè
 // ─────────────────────────────────────────────────────────────────────────────
 // REPORTS PAGE (container)
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// FULL REPORT — a complete, print-ready monthly document (not a screen copy)
+// ─────────────────────────────────────────────────────────────────────────────
+function FullReport({data}){
+  const {products,recipes,bom,orders=[],orderLines=[],subBom=[],subRecipes=[],purchases=[],wastageLog=[]}=data;
+  const now=new Date();
+  const [selYear,setSelYear]=useState(now.getFullYear());
+  const [selMonth,setSelMonth]=useState(now.getMonth()+1);
+  const pad=n=>String(n).padStart(2,"0");
+  const start=`${selYear}-${pad(selMonth)}-01`;
+  const lastDay=new Date(selYear,selMonth,0).getDate();
+  const end=`${selYear}-${pad(selMonth)}-${pad(lastDay)}`;
+  const MONTHS_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const mLabel=MONTHS_ES[selMonth-1]+" "+selYear;
+  const isCurrentMonth=selYear===now.getFullYear()&&selMonth===now.getMonth()+1;
+  const prevMonth=()=>{if(selMonth===1){setSelMonth(12);setSelYear(y=>y-1);}else setSelMonth(m=>m-1);};
+  const nextMonth=()=>{if(isCurrentMonth)return;if(selMonth===12){setSelMonth(1);setSelYear(y=>y+1);}else setSelMonth(m=>m+1);};
+  const S=getSettings(data);
+
+  // ── Sales ──
+  const mOrders=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
+  const mLines=orderLines.filter(l=>mOrders.some(o=>o.id===l.orderId));
+  const revenue=mLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+  const foodCost=mLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
+  const portions=mLines.reduce((s,l)=>s+l.qty,0);
+  const totalPax=mOrders.reduce((s,o)=>s+(o.pax||0),0);
+  const ticketPax=totalPax>0?revenue/totalPax:0;
+  const ticketOrder=mOrders.length>0?revenue/mOrders.length:0;
+  const igv=S.igvMode==="incluido"?revenue-revenue/1.18:S.igvMode==="excluido"?revenue*IGV_RATE:0;
+  const netRevenue=revenue-igv;
+  const foodCostPct=netRevenue>0?foodCost/netRevenue*100:0;
+  const grossMargin=netRevenue-foodCost;
+  const grossMarginPct=netRevenue>0?grossMargin/netRevenue*100:0;
+  // ── Purchases ──
+  const mPurch=purchases.filter(p=>p.status==="Recibido"&&inRange(p.date,start,end));
+  const purchaseCost=mPurch.reduce((s,p)=>s+(p.totalCost||0),0);
+  const purchByCat={};
+  mPurch.forEach(p=>{const prod=products.find(x=>x.id===p.productId);const cat=prod?prod.category:"Otros";purchByCat[cat]=(purchByCat[cat]||0)+(p.totalCost||0);});
+  // ── Wastage ──
+  const mWaste=(wastageLog||[]).filter(w=>inRange(w.date,start,end));
+  const wasteCost=mWaste.reduce((s,w)=>s+(w.lostValue||0),0);
+  const wasteByReason={};
+  mWaste.forEach(w=>{wasteByReason[w.reason]=(wasteByReason[w.reason]||0)+(w.lostValue||0);});
+  const netContribution=grossMargin-wasteCost;
+  const netPct=netRevenue>0?netContribution/netRevenue*100:0;
+  // ── Discounts ──
+  const mDisc=mOrders.filter(o=>(o.priceAdj||0)<0);
+  const discTotal=mDisc.reduce((s,o)=>s+Math.abs(o.priceAdj||0),0);
+  // ── Top dishes ──
+  const dishAgg={};
+  mLines.forEach(l=>{const r=recipes.find(x=>x.id===l.recipeId);if(!r)return;const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!dishAgg[r.id])dishAgg[r.id]={name:r.name,units:0,revenue:0,margin:0,fc,net};dishAgg[r.id].units+=l.qty;dishAgg[r.id].revenue+=r.price*l.qty;dishAgg[r.id].margin+=(net-fc)*l.qty;});
+  const topDishes=Object.values(dishAgg).sort((a,b)=>b.units-a.units);
+  // ── Weekly breakdown ──
+  const weeks=[];
+  let cur=new Date(start);
+  while(cur.toISOString().slice(0,10)<=end){
+    const wStart=cur.toISOString().slice(0,10);
+    const wEnd=new Date(Math.min(cur.getTime()+6*86400000,new Date(end).getTime())).toISOString().slice(0,10);
+    const wOrders=mOrders.filter(o=>inRange(o.date,wStart,wEnd));
+    const wLines=mLines.filter(l=>wOrders.some(o=>o.id===l.orderId));
+    const wRev=wLines.reduce((s,l)=>{const r=recipes.find(x=>x.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const wFC=wLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
+    weeks.push({label:"Sem "+(weeks.length+1),from:wStart,to:wEnd,rev:wRev,fc:wFC,orders:wOrders.length});
+    cur=new Date(cur.getTime()+7*86400000);
+  }
+
+  // ── render helpers ──
+  const section=(title,...kids)=>h('div',{className:"print-section",style:{marginBottom:18}},
+    h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:700,marginBottom:8,color:"var(--text)"}},title),...kids);
+  const kpi=(label,val)=>h('div',{style:{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 10px"}},
+    h('div',{style:{fontSize:15,fontWeight:700,fontFamily:"var(--sora)"}},val),
+    h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:2}},label));
+  const plRow=(label,amount,pct,bold)=>h('div',{style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--border)",fontWeight:bold?700:400,fontSize:13}},
+    h('span',null,label),h('span',null,fmtCost(amount)+(pct!=null?"  ·  "+pct.toFixed(1)+"%":"")));
+  const gridCols=n=>`2fr repeat(${n-1},1fr)`;
+  const table=(headers,rows)=>h('div',{style:{border:"1px solid var(--border)",borderRadius:8,overflow:"hidden"}},
+    h('div',{style:{display:"grid",gridTemplateColumns:gridCols(headers.length),gap:4,padding:"6px 10px",background:"var(--surface2)",fontSize:10,fontWeight:700,color:"var(--text3)"}},
+      headers.map((hd,i)=>h('span',{key:i,style:{textAlign:i===0?"left":"right"}},hd))),
+    rows.map((r,ri)=>h('div',{key:ri,style:{display:"grid",gridTemplateColumns:gridCols(headers.length),gap:4,padding:"5px 10px",borderTop:"1px solid var(--border)",fontSize:11}},
+      r.map((c,ci)=>h('span',{key:ci,style:{textAlign:ci===0?"left":"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c)))));
+  const empty=txt=>h('div',{style:{fontSize:12,color:"var(--text3)",fontStyle:"italic",padding:"8px 0"}},txt);
+  const navBtn={background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:8,width:32,height:32,cursor:"pointer",color:"var(--text2)",fontSize:16};
+
+  return h('div',{className:"slide-up"},
+    h('div',{className:"no-print",style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,background:"var(--surface2)",borderRadius:"var(--radius-sm)",padding:"8px 12px"}},
+      h('button',{onClick:prevMonth,style:navBtn},"‹"),
+      h('div',{style:{fontWeight:700,fontFamily:"var(--sora)",textTransform:"capitalize"}},mLabel),
+      h('button',{onClick:nextMonth,disabled:isCurrentMonth,style:{...navBtn,opacity:isCurrentMonth?0.4:1}},"›")
+    ),
+    h('div',{className:"no-print",style:{fontSize:12,color:"var(--text3)",marginBottom:16,textAlign:"center"}},
+      "Este es el informe completo del mes. Usa 🖨 Descargar PDF (arriba) para guardarlo o enviarlo."),
+
+    h('div',{className:"report-doc"},
+      // Cover header
+      h('div',{className:"print-section",style:{borderBottom:"2px solid var(--accent)",paddingBottom:14,marginBottom:20}},
+        h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+          h('div',{style:{minWidth:0}},
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:22,fontWeight:800}},S.restaurantName||"Mi Restaurante"),
+            S.ruc&&h('div',{style:{fontSize:12,color:"var(--text2)"}},"RUC: "+S.ruc)),
+          h('div',{style:{textAlign:"right",flexShrink:0}},
+            h('div',{style:{fontSize:12,color:"var(--text3)"}},"The Easy Cook"),
+            h('div',{style:{fontSize:11,color:"var(--text3)"}},"Generado el "+fmtDate(today())))
+        ),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginTop:10,color:"var(--accent)",textTransform:"capitalize"}},"Informe de gestión — "+mLabel)
+      ),
+      mOrders.length===0
+        ?section("Resumen ejecutivo",empty("No hay ventas cerradas en "+mLabel+". Cierra pedidos para ver el informe."))
+        :h(Fragment,null,
+          section("Resumen ejecutivo",
+            h('div',{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}},
+              kpi("Ventas (bruto)",fmtCost(revenue)),
+              kpi("Ventas netas (sin IGV)",fmtCost(netRevenue)),
+              kpi("IGV",fmtCost(igv)),
+              kpi("Costo de alimentos",fmtCost(foodCost)+" · "+foodCostPct.toFixed(1)+"%"),
+              kpi("Margen bruto",fmtCost(grossMargin)+" · "+grossMarginPct.toFixed(1)+"%"),
+              kpi("Mermas",fmtCost(wasteCost)),
+              kpi("Margen neto",fmtCost(netContribution)+" · "+netPct.toFixed(1)+"%"),
+              kpi("Pedidos",String(mOrders.length)),
+              kpi("Porciones vendidas",fmtNum(portions)),
+              kpi("Personas atendidas",String(totalPax)),
+              kpi("Ticket por persona",fmtCost(ticketPax)),
+              kpi("Ticket por pedido",fmtCost(ticketOrder))
+            )
+          ),
+          section("Estado de resultados",
+            plRow("Ventas netas (sin IGV)",netRevenue,null,true),
+            plRow("(−) Costo de alimentos",-foodCost,foodCostPct),
+            plRow("Margen bruto",grossMargin,grossMarginPct,true),
+            plRow("(−) Mermas",-wasteCost,netRevenue>0?wasteCost/netRevenue*100:0),
+            plRow("Margen neto (contribución)",netContribution,netPct,true)
+          ),
+          section("Ventas por semana",
+            table(["Semana","Rango","Pedidos","Ingresos","Costo %"],
+              weeks.map(w=>[w.label,fmtDate(w.from)+" – "+fmtDate(w.to),String(w.orders),fmtCost(w.rev),(w.rev>0?(w.fc/netBase(w.rev,S.igvMode)*100).toFixed(1)+"%":"—")]))
+          ),
+          section("Platos más vendidos",
+            topDishes.length===0?empty("Sin ventas en el período"):
+            table(["Plato","Unid.","Ingresos","Margen","Costo %"],
+              topDishes.slice(0,15).map(d=>[d.name,fmtNum(d.units),fmtCost(d.revenue),fmtCost(d.margin),(d.net>0?(d.fc/d.net*100).toFixed(1)+"%":"—")]))
+          ),
+          section("Compras del mes — "+fmtCost(purchaseCost),
+            Object.keys(purchByCat).length===0?empty("Sin compras registradas"):
+            table(["Categoría","Total"],Object.entries(purchByCat).sort((a,b)=>b[1]-a[1]).map(([c,v])=>[c,fmtCost(v)]))
+          ),
+          section("Mermas del mes — "+fmtCost(wasteCost),
+            Object.keys(wasteByReason).length===0?empty("Sin mermas registradas ✓"):
+            table(["Motivo","Total"],Object.entries(wasteByReason).sort((a,b)=>b[1]-a[1]).map(([r,v])=>[r,fmtCost(v)]))
+          ),
+          section("Descuentos del mes",
+            h('div',{style:{fontSize:13,color:"var(--text2)"}},mDisc.length+" descuento"+(mDisc.length!==1?"s":"")+" · Total otorgado: "+fmtCost(discTotal))
+          )
+        ),
+      h('div',{style:{marginTop:16,paddingTop:10,borderTop:"1px solid var(--border)",fontSize:10,color:"var(--text3)",textAlign:"center"}},
+        "Informe generado por The Easy Cook · "+fmtDate(today()))
+    )
+  );
+}
+
 function Reports({data}){
-  const [tab,setTab]=useState("weekly");
+  const [tab,setTab]=useState("full");
   useEffect(()=>{injectPrintStyles();},[]);
 
   const handlePrint=()=>{
@@ -24221,6 +24380,7 @@ function Reports({data}){
       h('div',{style:{flex:1}},
         h(ReportTab,{
           tabs:[
+            {id:"full",label:"📄 Informe completo"},
             {id:"weekly",label:"📅 Semanal"},
             {id:"monthly",label:"📊 P&L Mensual"},
             {id:"trend",label:"📈 Costos"},
@@ -24233,12 +24393,13 @@ function Reports({data}){
         className:"no-print",
         onClick:handlePrint,
         style:{flexShrink:0,marginLeft:8,marginBottom:16,
-          background:"var(--surface2)",border:"1px solid var(--border2)",
+          background:"var(--accent)",border:"1px solid var(--accent)",
           borderRadius:"var(--radius-sm)",padding:"6px 14px",
-          fontSize:12,fontWeight:600,color:"var(--text2)",cursor:"pointer",
-          display:"flex",alignItems:"center",gap:6,fontFamily:"var(--sans)"}
-      },"🖨 PDF")
+          fontSize:12,fontWeight:700,color:"#fff",cursor:"pointer",
+          display:"flex",alignItems:"center",gap:6,fontFamily:"var(--sans)",whiteSpace:"nowrap"}
+      },"🖨 Descargar PDF")
     ),
+    tab==="full"&&h(FullReport,{data}),
     tab==="weekly"&&h(WeeklyReport,{data}),
     tab==="monthly"&&h(MonthlyPL,{data}),
     tab==="trend"&&h(IngredientTrend,{data}),
