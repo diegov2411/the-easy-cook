@@ -17400,9 +17400,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.9.2";
+const APP_VERSION = "4.10.0";
 const APP_BUILD   = "Sprint 18 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.10.0", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
   {v:"4.9.2", date:"Jul 2026", notes:"Dos secciones más en el 'Informe completo': un gráfico de barras con la tendencia de ventas de los últimos 6 meses (con el promedio marcado y una tabla de apoyo con ventas netas, pedidos y costo % de cada mes), y 'Formas de pago' — cuánto entró por Yape, efectivo y tarjeta en el mes, con el % de cada uno y la diferencia contra lo registrado en la app. Ambas salen también en el PDF."},
   {v:"4.9.1", date:"Jul 2026", notes:"El 'Informe completo' ahora trae más análisis: comparación con el mes anterior (ventas netas, costo de alimentos %, margen, pedidos y ticket — con flechas de mejora/caída), ventas por día de la semana (con el mejor día del mes) y ventas por categoría. Además Reportes queda más ordenado: se unieron 'P&L Mensual' y 'Resumen Mensual' dentro del Informe completo, dejando 3 pestañas claras — Informe completo, Semanal y Costos."},
   {v:"4.9.0", date:"Jul 2026", notes:"Nuevo 'Informe completo' en Reportes: un informe mensual de gestión en un solo documento — portada (restaurante, RUC, fecha), resumen ejecutivo, estado de resultados (P&L), ventas por semana, platos más vendidos, compras, mermas y descuentos. El botón 'Descargar PDF' lo guarda como un PDF completo listo para enviar (a tu contador, por ejemplo), no una captura de lo que se ve en pantalla."},
@@ -17874,6 +17875,96 @@ function FormRow({label,children}){
   );
 }
 
+// Selector buscable con lista desplazable. Reemplaza a los <select> largos:
+// con cartas grandes (cientos de platos o insumos) un desplegable nativo es
+// imposible de usar en tablet. Aquí se escribe para filtrar y la lista tiene
+// scroll propio, así que da igual si hay 20 opciones o 2000.
+function PickerField({value,onChange,options,placeholder,searchPlaceholder,emptyText,maxShown}){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState("");
+  const boxRef=useRef(null);
+  const inputRef=useRef(null);
+  const MAX=maxShown||60;
+  const sel=options.find(o=>o.value===value);
+  const nq=ecNorm(q);
+  const filtered=nq?options.filter(o=>ecNorm(o.label).includes(nq)||ecNorm(o.sub).includes(nq)):options;
+  const shown=filtered.slice(0,MAX);
+  useEffect(()=>{
+    if(!open)return;
+    const onDoc=e=>{if(boxRef.current&&!boxRef.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",onDoc);
+    if(inputRef.current)inputRef.current.focus();
+    return()=>document.removeEventListener("mousedown",onDoc);
+  },[open]);
+  const pick=v=>{onChange(v);setOpen(false);setQ("");};
+  return h('div',{ref:boxRef,style:{position:"relative"}},
+    h('button',{type:"button",onClick:()=>setOpen(o=>!o),style:{
+        width:"100%",textAlign:"left",background:"var(--surface)",border:"1px solid var(--border2)",
+        borderRadius:"var(--radius-sm)",padding:"10px 12px",fontSize:14,fontFamily:"var(--sans)",
+        color:sel?"var(--text)":"var(--text3)",cursor:"pointer",display:"flex",
+        alignItems:"center",justifyContent:"space-between",gap:8}},
+      h('span',{style:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},sel?sel.label:(placeholder||"Seleccionar...")),
+      h('span',{style:{color:"var(--text3)",fontSize:11,flexShrink:0}},open?"▲":"▼")),
+    open&&h('div',{style:{
+        position:"absolute",zIndex:60,top:"calc(100% + 4px)",left:0,right:0,
+        background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",
+        boxShadow:"0 8px 24px rgba(0,0,0,0.28)",overflow:"hidden"}},
+      h('div',{style:{padding:8,borderBottom:"1px solid var(--border)"}},
+        h('input',{ref:inputRef,value:q,onChange:e=>setQ(e.target.value),
+          onKeyDown:e=>{if(e.key==="Enter"){e.preventDefault();if(shown.length)pick(shown[0].value);}
+                        else if(e.key==="Escape"){e.preventDefault();setOpen(false);}},
+          placeholder:searchPlaceholder||"Buscar...",style:{width:"100%",fontSize:14}})),
+      h('div',{style:{maxHeight:250,overflowY:"auto"}},
+        shown.length===0
+          ?h('div',{style:{padding:"14px 12px",fontSize:12,color:"var(--text3)",fontStyle:"italic"}},emptyText||"Sin resultados")
+          :shown.map(o=>h('button',{key:o.value,type:"button",onClick:()=>pick(o.value),style:{
+              width:"100%",textAlign:"left",background:o.value===value?"rgba(249,115,22,0.12)":"transparent",
+              border:"none",borderBottom:"1px solid var(--border)",padding:"9px 12px",cursor:"pointer",
+              fontFamily:"var(--sans)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}},
+            h('span',{style:{minWidth:0}},
+              h('span',{style:{display:"block",fontSize:13,color:"var(--text)",fontWeight:o.value===value?600:400,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},o.label),
+              o.sub&&h('span',{style:{display:"block",fontSize:11,color:"var(--text3)",marginTop:1,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},o.sub)),
+            o.tag&&h('span',{style:{fontSize:10,fontWeight:700,color:o.tagColor||"var(--text3)",flexShrink:0,whiteSpace:"nowrap"}},o.tag)))),
+      filtered.length>shown.length&&h('div',{style:{padding:"7px 12px",fontSize:11,color:"var(--text3)",
+        borderTop:"1px solid var(--border)",background:"var(--surface)"}},
+        "Mostrando "+shown.length+" de "+filtered.length+" — escribe para filtrar")
+    )
+  );
+}
+
+// Buscador de lista — para pantallas donde el catálogo puede ser largo.
+function SearchBox({value,onChange,placeholder,count,total}){
+  return h('div',{style:{marginBottom:12}},
+    h('div',{style:{position:"relative"}},
+      h('input',{value,onChange:e=>onChange(e.target.value),placeholder:placeholder||"Buscar...",
+        style:{width:"100%",paddingLeft:34}}),
+      h('span',{style:{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",
+        fontSize:13,color:"var(--text3)",pointerEvents:"none"}},"🔍"),
+      value?h('button',{type:"button",onClick:()=>onChange(""),style:{position:"absolute",right:8,
+        top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text3)",
+        cursor:"pointer",fontSize:16,lineHeight:1,padding:4}},"×"):null),
+    value?h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:5}},
+      count===0?"Sin resultados":count+(count===1?" resultado":" resultados")+" de "+total):null);
+}
+
+// Revelado progresivo — con cientos de fichas, pintarlas todas de golpe hace
+// lenta la pantalla. Se muestran por tandas y el usuario pide más si quiere.
+function ShowMore({shown,total,onMore,onAll}){
+  if(shown>=total)return null;
+  const rest=total-shown;
+  return h('div',{style:{display:"flex",gap:8,marginTop:12}},
+    h('button',{type:"button",onClick:onMore,style:{flex:1,background:"var(--surface2)",
+      border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 12px",
+      color:"var(--text2)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"var(--sans)"}},
+      "Ver más ("+rest+" restantes) ↓"),
+    onAll?h('button',{type:"button",onClick:onAll,style:{background:"none",
+      border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 12px",
+      color:"var(--text3)",fontSize:13,cursor:"pointer",fontFamily:"var(--sans)",whiteSpace:"nowrap"}},
+      "Ver todas"):null);
+}
+
 function Toast({msg,type,onDone}){
   useEffect(()=>{const t=setTimeout(onDone,2500);return()=>clearTimeout(t);},[]);
   const colors={success:"var(--green)",error:"var(--red)",info:"var(--blue)"};
@@ -18290,7 +18381,7 @@ function Dashboard({data,setPage,currentUser}){
   const todayRevenue=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
     .reduce((s2,l)=>{const r=recipeById(recipes,l.recipeId);return s2+(r?r.price*l.qty:0);},0),0);
   const todayFoodCost=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
-    .reduce((s2,l)=>s2+recipeFoodCost(l.recipeId,products,bom)*l.qty,0),0);
+    .reduce((s2,l)=>s2+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0),0);
   const todayPurchaseCost=purchases.filter(p=>p.date===today_date).reduce((s,p)=>s+(p.totalCost||0),0);
   const totalCostToday=todayFoodCost+todayPurchaseCost;
   const _dashSettings=getSettings(data);
@@ -18941,6 +19032,7 @@ function Inventory({data,setData,toast,logActivity}){
   const [wastageForm,setWastageForm]=useState({});
   const [manageCatModal,setManageCatModal]=useState(false);
   const [invTab,setInvTab]=useState("stock"); // "stock" | "produccion" | "mermas"
+  const [invLimit,setInvLimit]=useState(40);
   // Count mode state
   const [countDate,setCountDate]=useState(today());
   const [physicals,setPhysicals]=useState({});
@@ -18950,7 +19042,9 @@ function Inventory({data,setData,toast,logActivity}){
   const [expandedCount,setExpandedCount]=useState(null);
   const [drillProduct,setDrillProduct]=useState(null);
 
-  const filtered=products.filter(p=>(filter==="all"||p.category===filter)&&p.name.toLowerCase().includes(search.toLowerCase()));
+  const invNq=ecNorm(search);
+  const filtered=products.filter(p=>(filter==="all"||p.category===filter)&&(!invNq||ecNorm(p.name).includes(invNq)));
+  const invShown=filtered.slice(0,invLimit);
   const stockStatus=p=>p.stock<p.minStock*0.4?{label:"Crítico",color:"red"}:p.stock<p.minStock?{label:"Bajo",color:"yellow"}:{label:"OK",color:"green"};
 
   const openAdd=()=>{setEditItem(null);setForm({name:"",category:ingredientCategories[0]||"",unit:"kg",minStock:"",stock:"",avgCost:"",yieldPct:100});setModal(true);};
@@ -19209,6 +19303,8 @@ function Inventory({data,setData,toast,logActivity}){
     invTab==="mermas"&&h(WastagePanel,{wastageLog:data.wastageLog||[],setData,toast}),
     invTab==="stock"&&h(React.Fragment,null,
     h(CategoryPills,{cats:["all",...ingredientCategories],active:filter,onChange:setFilter,onManage:()=>setManageCatModal(true)}),
+    products.length>8&&h(SearchBox,{value:search,onChange:v=>{setSearch(v);setInvLimit(40);},
+      placeholder:"Buscar ingrediente por nombre...",count:filtered.length,total:products.length}),
     h('div',{style:{display:"flex",gap:8,marginBottom:14}},
       [{label:"Total",val:products.length,color:"var(--text)"},{label:"Bajos",val:products.filter(p=>p.stock<p.minStock).length,color:"var(--yellow)"},{label:"Críticos",val:products.filter(p=>p.stock<p.minStock*0.4).length,color:"var(--red)"}]
         .map(s=>h('div',{key:s.label,style:{background:"var(--surface2)",borderRadius:"var(--radius-sm)",padding:"8px 14px",flex:1,textAlign:"center",border:"1px solid var(--border)"}},
@@ -19227,9 +19323,13 @@ function Inventory({data,setData,toast,logActivity}){
       );
     })(),
     filtered.length===0
-      ?h(EmptyState,{icon:"📦",title:"Sin ingredientes",sub:"Agrega tu primer ingrediente",action:openAdd,actionLabel:"Agregar ingrediente"})
+      ?(invNq
+        ?h('div',{style:{textAlign:"center",padding:"2.5rem 1rem",color:"var(--text3)",fontSize:13}},
+          "Ningún ingrediente se llama así. ",
+          h('button',{onClick:()=>{setSearch("");setFilter("all");},style:{background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:13}},"Ver todos"))
+        :h(EmptyState,{icon:"📦",title:"Sin ingredientes",sub:"Agrega tu primer ingrediente",action:openAdd,actionLabel:"Agregar ingrediente"}))
       :h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
-        filtered.map(p=>{
+        invShown.map(p=>{
           const st=stockStatus(p);const usable=usableUnitCost(p);const stockPct=p.minStock>0?Math.max(0,Math.min(1,p.stock/(p.minStock*2))):1;
           return h(Card,{key:p.id,onClick:()=>openEdit(p)},
             h('div',{style:{display:"flex",gap:12,alignItems:"center"}},
@@ -19261,7 +19361,9 @@ function Inventory({data,setData,toast,logActivity}){
               )
             )
           );
-        })
+        }),
+        h(ShowMore,{shown:invShown.length,total:filtered.length,
+          onMore:()=>setInvLimit(n=>n+40),onAll:()=>setInvLimit(filtered.length)})
       ),
     h(Modal,{open:modal,onClose:()=>setModal(false),title:editItem?"Editar ingrediente":"Nuevo ingrediente"},
       h(FormRow,{label:"Nombre del ingrediente"},h('input',{value:form.name||"",onChange:e=>setForm({...form,name:e.target.value}),placeholder:"ej. Pollo pechuga"})),
@@ -19338,6 +19440,8 @@ function Recipes({data,setData,toast}){
   const [addIngModal,setAddIngModal]=useState(false);
   const [newIng,setNewIng]=useState({});
   const [rFilterCat,setRFilterCat]=useState("all");
+  const [rSearch,setRSearch]=useState("");
+  const [rLimit,setRLimit]=useState(30);
   const [rManageModal,setRManageModal]=useState(false);
   const [editingRecipe,setEditingRecipe]=useState(null);
   const [rDeleteConfirm,setRDeleteConfirm]=useState(null);
@@ -19359,6 +19463,8 @@ function Recipes({data,setData,toast}){
   const [srAddIngModal,setSrAddIngModal]=useState(false);
   const [srNewIng,setSrNewIng]=useState({});
   const [srFilterCat,setSrFilterCat]=useState("all");
+  const [srSearch,setSrSearch]=useState("");
+  const [srLimit,setSrLimit]=useState(30);
   const [srManageModal,setSrManageModal]=useState(false);
   const [editingSR,setEditingSR]=useState(null);
   const [srDeleteConfirm,setSrDeleteConfirm]=useState(null);
@@ -19370,7 +19476,9 @@ function Recipes({data,setData,toast}){
     color:tab===t?"#fff":"var(--text2)"});
 
   // ── RECIPE ACTIONS ───────────────────────────────────────────────────────────
-  const rFiltered=recipes.filter(r=>rFilterCat==="all"||r.category===rFilterCat);
+  const rNq=ecNorm(rSearch);
+  const rFiltered=recipes.filter(r=>(rFilterCat==="all"||r.category===rFilterCat)&&(!rNq||ecNorm(r.name).includes(rNq)));
+  const rShown=rFiltered.slice(0,rLimit);
 
   const openAddRecipe=()=>{
     setEditingRecipe(null);
@@ -19420,7 +19528,9 @@ function Recipes({data,setData,toast}){
   };
 
   // ── SUB-RECIPE ACTIONS ───────────────────────────────────────────────────────
-  const srFiltered=subRecipes.filter(sr=>srFilterCat==="all"||sr.category===srFilterCat);
+  const srNq=ecNorm(srSearch);
+  const srFiltered=subRecipes.filter(sr=>(srFilterCat==="all"||sr.category===srFilterCat)&&(!srNq||ecNorm(sr.name).includes(srNq)));
+  const srShown=srFiltered.slice(0,srLimit);
 
   const openAddSR=()=>{
     setEditingSR(null);
@@ -19617,6 +19727,8 @@ function Recipes({data,setData,toast}){
     // ── Recipes list ──────────────────────────────────────────────────────────
     tab==="recipes"&&h(Fragment,null,
       h(CategoryPills,{cats:["all",...recipeCategories],active:rFilterCat,onChange:setRFilterCat,onManage:()=>setRManageModal(true)}),
+      recipes.length>8&&h(SearchBox,{value:rSearch,onChange:v=>{setRSearch(v);setRLimit(30);},
+        placeholder:"Buscar receta por nombre...",count:rFiltered.length,total:recipes.length}),
       rFilterCat!=="all"&&recipes.length>0&&h("div",{style:{fontSize:12,color:"var(--text2)",marginBottom:10}},
         `${rFiltered.length} de ${recipes.length} recetas `,
         h("button",{onClick:()=>setRFilterCat("all"),style:{background:"none",border:"none",color:"var(--accent)",fontSize:12,cursor:"pointer",padding:0}},"Limpiar \u00d7")
@@ -19625,10 +19737,10 @@ function Recipes({data,setData,toast}){
         ?h(EmptyState,{icon:"\ud83c\udf7d",title:"Sin recetas",sub:"Crea tu primera receta para calcular costos",action:openAddRecipe,actionLabel:"Crear receta"})
         :rFiltered.length===0
           ?h("div",{style:{textAlign:"center",padding:"2.5rem 1rem",color:"var(--text3)",fontSize:13}},
-            "Sin recetas en esta categor\u00eda. ",
-            h("button",{onClick:()=>setRFilterCat("all"),style:{background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:13}},"Ver todas"))
+            rNq?"Ninguna receta se llama as\u00ed. ":"Sin recetas en esta categor\u00eda. ",
+            h("button",{onClick:()=>{setRFilterCat("all");setRSearch("");},style:{background:"none",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:13}},"Ver todas"))
           :h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-            rFiltered.map(r=>{
+            rShown.map(r=>{
               const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);
               const _listSettings=getSettings(data);
               const _listNet=netBase(r.price,_listSettings.igvMode);
@@ -19653,7 +19765,9 @@ function Recipes({data,setData,toast}){
                   )
                 )
               );
-            })
+            }),
+            h(ShowMore,{shown:rShown.length,total:rFiltered.length,
+              onMore:()=>setRLimit(n=>n+30),onAll:()=>setRLimit(rFiltered.length)})
           ),
       h(ManageCatsModal,{open:rManageModal,onClose:()=>setRManageModal(false),
         categories:recipeCategories,items:recipes,itemLabel:"receta",
@@ -19850,10 +19964,14 @@ function Recipes({data,setData,toast}){
             t==="product"?"\ud83e\uddc2 Ingrediente":"\ud83c\udf72 Sub-receta"))
         ),
         (newIng.ingType==="subrecipe"
-          ?h(FormRow,{label:"Sub-receta"},h("select",{value:newIng.subRecipeId||"",onChange:e=>setNewIng({...newIng,subRecipeId:e.target.value})},
-              [h("option",{key:"",value:""},"Seleccionar..."),...subRecipes.map(sr=>h("option",{key:sr.id,value:sr.id},`${sr.name} (${sr.yieldUnit})`))]))
-          :h(FormRow,{label:"Ingrediente"},h("select",{value:newIng.productId||"",onChange:e=>setNewIng({...newIng,productId:e.target.value})},
-              [h("option",{key:"",value:""},"Seleccionar..."),...products.map(p=>h("option",{key:p.id,value:p.id},`${p.name} (${p.unit})`))]))
+          ?h(FormRow,{label:"Sub-receta"},h(PickerField,{
+              value:newIng.subRecipeId||"",onChange:v=>setNewIng({...newIng,subRecipeId:v}),
+              searchPlaceholder:"Buscar sub-receta...",emptyText:"Ninguna sub-receta con ese nombre",
+              options:subRecipes.map(sr=>({value:sr.id,label:sr.name,sub:sr.yieldUnit}))}))
+          :h(FormRow,{label:"Ingrediente"},h(PickerField,{
+              value:newIng.productId||"",onChange:v=>setNewIng({...newIng,productId:v}),
+              searchPlaceholder:"Buscar ingrediente...",emptyText:"Ningún ingrediente con ese nombre",
+              options:products.map(p=>({value:p.id,label:p.name,sub:p.unit+(p.category?" · "+p.category:"")}))}))
         ),
         h(FormRow,{label:"Cantidad por porci\u00f3n"},h("input",{type:"number",value:newIng.qty||"",onChange:e=>setNewIng({...newIng,qty:e.target.value}),placeholder:"0"})),
         (()=>{
@@ -19873,10 +19991,12 @@ function Recipes({data,setData,toast}){
     // ── Sub-recipes list ──────────────────────────────────────────────────────
     tab==="subrecipes"&&h(Fragment,null,
       h(CategoryPills,{cats:["all",...subRecipeCategories],active:srFilterCat,onChange:setSrFilterCat,onManage:()=>setSrManageModal(true)}),
+      subRecipes.length>8&&h(SearchBox,{value:srSearch,onChange:v=>{setSrSearch(v);setSrLimit(30);},
+        placeholder:"Buscar sub-receta por nombre...",count:srFiltered.length,total:subRecipes.length}),
       srFiltered.length===0
         ?h(EmptyState,{icon:"\ud83c\udf72",title:"Sin sub-recetas",sub:"Fondos, salsas y preparaciones base",action:openAddSR,actionLabel:"Crear sub-receta"})
         :h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-          srFiltered.map(sr=>{
+          srShown.map(sr=>{
             const bc=subRecipeBatchCost(sr.id,products,subBom);
             const uc=sr.batchYield>0?bc/sr.batchYield:0;
             const usedCount=bom.filter(b=>b.type==="subrecipe"&&b.subRecipeId===sr.id).length;
@@ -19897,7 +20017,9 @@ function Recipes({data,setData,toast}){
                 )
               )
             );
-          })
+          }),
+          h(ShowMore,{shown:srShown.length,total:srFiltered.length,
+            onMore:()=>setSrLimit(n=>n+30),onAll:()=>setSrLimit(srFiltered.length)})
         ),
       h(ManageCatsModal,{open:srManageModal,onClose:()=>setSrManageModal(false),
         categories:subRecipeCategories,items:subRecipes,itemLabel:"sub-receta",
@@ -19971,8 +20093,10 @@ function Recipes({data,setData,toast}){
         )
       ),
       h(Modal,{open:srAddIngModal,onClose:()=>setSrAddIngModal(false),title:"Agregar ingrediente al batch"},
-        h(FormRow,{label:"Ingrediente"},h("select",{value:srNewIng.productId||"",onChange:e=>setSrNewIng({...srNewIng,productId:e.target.value})},
-          [h("option",{key:"",value:""},"Seleccionar..."),...products.map(p=>h("option",{key:p.id,value:p.id},`${p.name} (${p.unit})`)),])),
+        h(FormRow,{label:"Ingrediente"},h(PickerField,{
+          value:srNewIng.productId||"",onChange:v=>setSrNewIng({...srNewIng,productId:v}),
+          searchPlaceholder:"Buscar ingrediente...",emptyText:"Ningún ingrediente con ese nombre",
+          options:products.map(p=>({value:p.id,label:p.name,sub:p.unit+(p.category?" · "+p.category:"")}))})),
         h(FormRow,{label:"Cantidad para el batch"},h("input",{type:"number",value:srNewIng.qty||"",onChange:e=>setSrNewIng({...srNewIng,qty:e.target.value}),placeholder:"0"})),
         srNewIng.productId&&srNewIng.qty&&h("div",{style:{fontSize:12,color:"var(--text2)",background:"var(--surface2)",borderRadius:8,padding:"8px 12px",marginBottom:12}},
           "Costo: ",h("strong",{style:{color:"var(--accent)"}},fmtCost(usableUnitCost(products.find(p=>p.id===srNewIng.productId))*(+srNewIng.qty||0)))),
@@ -20809,7 +20933,10 @@ function PurchasesTab({data,setData,toast}){
     h(Modal,{open:modal,onClose:()=>setModal(false),title:"Registrar compra"},
       h('div',{style:{background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:16,fontSize:12,color:"var(--text2)"}},
         "Esta compra se marcará como Recibida y actualizará el inventario de inmediato."),
-      h(FormRow,{label:"Ingrediente"},h('select',{value:form.productId||"",onChange:e=>setForm({...form,productId:e.target.value})},[h('option',{key:"",value:""},"Seleccionar..."),...products.map(p=>h('option',{key:p.id,value:p.id},`${p.name} (${p.unit})`)),])),
+      h(FormRow,{label:"Ingrediente"},h(PickerField,{
+        value:form.productId||"",onChange:v=>setForm({...form,productId:v}),
+        searchPlaceholder:"Buscar ingrediente...",emptyText:"Ningún ingrediente con ese nombre",
+        options:products.map(p=>({value:p.id,label:p.name,sub:p.unit+(p.category?" · "+p.category:"")}))})),
       h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
         h(FormRow,{label:"Cantidad"},h('input',{type:"number",value:form.qty||"",onChange:e=>setForm({...form,qty:e.target.value}),placeholder:"0"})),
         h(FormRow,{label:"Costo total (S/)"},h('input',{type:"number",value:form.totalCost||"",onChange:e=>setForm({...form,totalCost:e.target.value}),placeholder:"0.00"}))
@@ -21264,11 +21391,23 @@ function Sales({data,setData,toast,currentUser}){
         h('div',{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12}},
           ["all",...recipeCategories].map(c=>h('button',{key:c,onClick:()=>setAddDishForm({...addDishForm,cat:c,recipeId:""}),style:{padding:"5px 13px",borderRadius:20,border:"1px solid",borderColor:(addDishForm.cat||"all")===c?"var(--accent)":"var(--border2)",background:(addDishForm.cat||"all")===c?"rgba(249,115,22,0.15)":"transparent",color:(addDishForm.cat||"all")===c?"var(--accent)":"var(--text2)",fontSize:12,fontWeight:500,whiteSpace:"nowrap",fontFamily:"var(--sans)"}},c==="all"?"Todos":c))
         ),
-        h(FormRow,{label:"Plato"},h('select',{value:addDishForm.recipeId||"",onChange:e=>setAddDishForm({...addDishForm,recipeId:e.target.value})},
-          [h('option',{key:"",value:""},"Seleccionar plato..."),
-          ...recipes.filter(r=>!addDishForm.cat||addDishForm.cat==="all"||r.category===addDishForm.cat)
-            .map(r=>{const stock=canMakeRecipe(r.id,1,products,bom);const av=dishAvailability(r,orders,orderLines);let tag="",icon="";if(av.soldOut){icon="🚫 ";tag=" — Agotado (cocina)";}else if(av.limited&&av.remaining<=0){icon="🚫 ";tag=" — Sin más porciones";}else if(av.limited){tag=" — quedan "+av.remaining;}else if(!stock){icon="⚠️ ";tag=" — Sin stock teórico";}return h('option',{key:r.id,value:r.id},`${icon}${r.name} · ${fmtCost(r.price)}${tag}`);})]
-        )),
+        h(FormRow,{label:"Plato"},h(PickerField,{
+          value:addDishForm.recipeId||"",
+          onChange:v=>setAddDishForm({...addDishForm,recipeId:v}),
+          placeholder:"Seleccionar plato...",
+          searchPlaceholder:"Buscar plato por nombre...",
+          emptyText:"Ningún plato con ese nombre",
+          options:recipes.filter(r=>!addDishForm.cat||addDishForm.cat==="all"||r.category===addDishForm.cat)
+            .map(r=>{
+              const av=dishAvailability(r,orders,orderLines);
+              let tag="",tagColor="";
+              if(av.soldOut){tag="🚫 Agotado";tagColor="var(--red)";}
+              else if(av.limited&&av.remaining<=0){tag="🚫 Sin porciones";tagColor="var(--red)";}
+              else if(av.limited){tag="quedan "+av.remaining;tagColor="var(--yellow)";}
+              else if(!canMakeRecipe(r.id,1,products,bom,subBom,subRecipes)){tag="⚠️ Sin stock";tagColor="var(--yellow)";}
+              return {value:r.id,label:r.name,sub:fmtCost(r.price)+(r.category?" · "+r.category:""),tag,tagColor};
+            })
+        })),
         addDishForm.recipeId&&(()=>{
           const _r=recipes.find(x=>x.id===addDishForm.recipeId);const av=dishAvailability(_r,orders,orderLines);
           const box=(bg,bd,col,txt)=>h('div',{style:{background:bg,border:"1px solid "+bd,borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,fontWeight:600,color:col}},txt);
@@ -21543,9 +21682,11 @@ function ProduccionTab({data,setData,toast}){
           h('input',{type:"date",value:form.date,onChange:e=>setForm({...form,date:e.target.value})})
         ),
         h(FormRow,{label:"Sub-receta"},
-          h('select',{value:form.subRecipeId,onChange:e=>setForm({...form,subRecipeId:e.target.value,actualYield:""})},
-            [h('option',{key:"",value:""},"Seleccionar..."),...subRecipes.map(s=>h('option',{key:s.id,value:s.id},s.name))]
-          )
+          h(PickerField,{
+            value:form.subRecipeId||"",onChange:v=>setForm({...form,subRecipeId:v,actualYield:""}),
+            searchPlaceholder:"Buscar sub-receta...",emptyText:"Ninguna sub-receta con ese nombre",
+            options:subRecipes.map(s=>({value:s.id,label:s.name,sub:s.yieldUnit?("rinde "+s.batchYield+" "+s.yieldUnit):""}))})
+          
         )
       ),
       sr&&h('div',{style:{background:"rgba(168,85,247,0.08)",border:"1px solid rgba(168,85,247,0.2)",borderRadius:"var(--radius-sm)",padding:"8px 12px",marginBottom:10,fontSize:12}},
@@ -22598,9 +22739,11 @@ function MenuEngineering({data}){
       h('div',{style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"14px",marginBottom:14}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:600,marginBottom:12}},"⚙️ Parámetros de simulación"),
         h(FormRow,{label:"Ingrediente afectado"},
-          h('select',{value:simIngredient,onChange:e=>setSimIngredient(e.target.value)},
-            products.map(p=>h('option',{key:p.id,value:p.id},p.name+" ("+fmtCost(p.avgCost)+"/"+p.unit+")"))
-          )
+          h(PickerField,{
+            value:simIngredient,onChange:setSimIngredient,
+            searchPlaceholder:"Buscar ingrediente...",emptyText:"Ningún ingrediente con ese nombre",
+            options:products.map(p=>({value:p.id,label:p.name,sub:fmtCost(p.avgCost)+"/"+p.unit}))})
+          
         ),
         h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
           h(FormRow,{label:"Incremento de precio"},
