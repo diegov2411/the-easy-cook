@@ -17883,9 +17883,55 @@ function subRecipeCostPerUnit(srId,products,subBom){
   },0);
   return batchCost; // caller divides by batchYield
 }
+// ── Lookup indexes ───────────────────────────────────────────────────────────
+// Cartas grandes (cientos de platos e insumos) hacían que cada cálculo de costo
+// recorriera todo el catálogo. Estos índices se reconstruyen solo cuando el
+// arreglo de origen cambia de identidad (setData siempre crea arreglos nuevos),
+// así que el resultado es idéntico al de antes pero sin los escaneos repetidos.
+function _idxBy(arr,key,cacheHolder){
+  if(cacheHolder.src!==arr){
+    cacheHolder.src=arr;
+    cacheHolder.map=new Map();
+    (arr||[]).forEach(x=>cacheHolder.map.set(x[key],x));
+  }
+  return cacheHolder.map;
+}
+function _groupBy(arr,key,cacheHolder){
+  if(cacheHolder.src!==arr){
+    cacheHolder.src=arr;
+    cacheHolder.map=new Map();
+    (arr||[]).forEach(x=>{const g=cacheHolder.map.get(x[key]);if(g)g.push(x);else cacheHolder.map.set(x[key],[x]);});
+  }
+  return cacheHolder.map;
+}
+const _prodIdx={src:undefined,map:new Map()};
+const _srIdx={src:undefined,map:new Map()};
+const _recIdx={src:undefined,map:new Map()};
+const _bomIdx={src:undefined,map:new Map()};
+const _sbomIdx={src:undefined,map:new Map()};
+const prodById=(products,id)=>_idxBy(products,"id",_prodIdx).get(id);
+const srById=(subRecipes,id)=>_idxBy(subRecipes,"id",_srIdx).get(id);
+const recipeById=(recipes,id)=>_idxBy(recipes,"id",_recIdx).get(id);
+const bomOf=(bom,recipeId)=>_groupBy(bom,"recipeId",_bomIdx).get(recipeId)||[];
+const subBomOf=(subBom,srId)=>_groupBy(subBom,"subRecipeId",_sbomIdx).get(srId)||[];
+const _olIdx={src:undefined,map:new Map()};
+const linesOf=(orderLines,orderId)=>_groupBy(orderLines,"orderId",_olIdx).get(orderId)||[];
+// Líneas de un subconjunto de pedidos, sin recorrer los pedidos por cada línea.
+function linesOfOrders(orderLines,ordersSubset){
+  const ids=new Set((ordersSubset||[]).map(o=>o.id));
+  return (orderLines||[]).filter(l=>ids.has(l.orderId));
+}
+
+const _sbCostCache={products:undefined,subBom:undefined,map:new Map()};
 function subRecipeBatchCost(srId,products,subBom){
-  return subBom.filter(b=>b.subRecipeId===srId)
-    .reduce((s,b)=>{const p=products.find(p=>p.id===b.productId);return s+usableUnitCost(p)*b.qty;},0);
+  if(_sbCostCache.products!==products||_sbCostCache.subBom!==subBom){
+    _sbCostCache.products=products;_sbCostCache.subBom=subBom;_sbCostCache.map=new Map();
+  }
+  if(_sbCostCache.map.has(srId))return _sbCostCache.map.get(srId);
+  const v=subBomOf(subBom,srId)
+    .reduce((s,b)=>s+usableUnitCost(prodById(products,b.productId))*b.qty,0);
+  _sbCostCache.map.set(srId,v);
+  return v;
 }
 function subRecipeUnitCost(sr,products,subBom){
   if(!sr||!sr.batchYield)return 0;
@@ -17895,30 +17941,37 @@ function subRecipeUnitCost(sr,products,subBom){
 // BOM line cost — handles both product and subrecipe types
 function bomLineCost(b,products,subBom,subRecipes){
   if(b.type==="subrecipe"){
-    const sr=subRecipes&&subRecipes.find(s=>s.id===b.subRecipeId);
+    const sr=srById(subRecipes,b.subRecipeId);
     return sr?subRecipeUnitCost(sr,products,subBom)*b.qty:0;
   }
-  const p=products.find(p=>p.id===b.productId);
-  return usableUnitCost(p)*b.qty;
+  return usableUnitCost(prodById(products,b.productId))*b.qty;
 }
 
+const _fcCache={products:undefined,bom:undefined,subBom:undefined,subRecipes:undefined,map:new Map()};
 function recipeFoodCost(recipeId,products,bom,subBom,subRecipes){
-  return bom.filter(b=>b.recipeId===recipeId)
-    .reduce((s,b)=>s+bomLineCost(b,products,subBom||[],subRecipes||[]),0);
+  const c=_fcCache;
+  if(c.products!==products||c.bom!==bom||c.subBom!==subBom||c.subRecipes!==subRecipes){
+    c.products=products;c.bom=bom;c.subBom=subBom;c.subRecipes=subRecipes;c.map=new Map();
+  }
+  if(c.map.has(recipeId))return c.map.get(recipeId);
+  const v=bomOf(bom,recipeId)
+    .reduce((s,b)=>s+bomLineCost(b,products,subBom,subRecipes),0);
+  c.map.set(recipeId,v);
+  return v;
 }
 function canMakeRecipe(recipeId,qty=1,products,bom,subBom,subRecipes){
-  const lines=bom.filter(b=>b.recipeId===recipeId);
+  const lines=bomOf(bom,recipeId);
   if(!lines.length)return true;
   return lines.every(b=>{
     if(b.type==="subrecipe"){
       // sub-recipe: check each of its ingredients
-      const sbLines=(subBom||[]).filter(sb=>sb.subRecipeId===b.subRecipeId);
-      const sr=(subRecipes||[]).find(s=>s.id===b.subRecipeId);
+      const sbLines=subBomOf(subBom,b.subRecipeId);
+      const sr=srById(subRecipes,b.subRecipeId);
       if(!sr||!sr.batchYield)return true;
       const batchesNeeded=b.qty/sr.batchYield;
-      return sbLines.every(sb=>{const p=products.find(p=>p.id===sb.productId);return p&&p.stock>=sb.qty*batchesNeeded*qty;});
+      return sbLines.every(sb=>{const p=prodById(products,sb.productId);return p&&p.stock>=sb.qty*batchesNeeded*qty;});
     }
-    const p=products.find(p=>p.id===b.productId);
+    const p=prodById(products,b.productId);
     return p&&p.stock>=b.qty*qty;
   });
 }
@@ -18506,9 +18559,9 @@ function Dashboard({data,setPage,currentUser}){
   const {products,recipes,bom,orders=[],orderLines=[],purchases=[],subBom=[],subRecipes=[],paymentRecons=[],wastageLog=[]}=data;
   const today_date=today();
   const closedToday=orders.filter(o=>o.date===today_date&&o.status==="closed");
-  const todayRevenue=closedToday.reduce((s,o)=>s+orderLines.filter(l=>l.orderId===o.id)
-    .reduce((s2,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s2+(r?r.price*l.qty:0);},0),0);
-  const todayFoodCost=closedToday.reduce((s,o)=>s+orderLines.filter(l=>l.orderId===o.id)
+  const todayRevenue=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
+    .reduce((s2,l)=>{const r=recipeById(recipes,l.recipeId);return s2+(r?r.price*l.qty:0);},0),0);
+  const todayFoodCost=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
     .reduce((s2,l)=>s2+recipeFoodCost(l.recipeId,products,bom)*l.qty,0),0);
   const todayPurchaseCost=purchases.filter(p=>p.date===today_date).reduce((s,p)=>s+(p.totalCost||0),0);
   const totalCostToday=todayFoodCost+todayPurchaseCost;
@@ -18516,12 +18569,12 @@ function Dashboard({data,setPage,currentUser}){
   const todayNetRevenue=closedToday.reduce((s,o)=>{
     // Use snapshotted subtotal if available, else derive from gross
     if(o.subtotal!==undefined)return s+o.subtotal;
-    const gross=orderLines.filter(l=>l.orderId===o.id)
-      .reduce((s2,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s2+(r?r.price*l.qty:0);},0)+(o.priceAdj||0);
+    const gross=linesOf(orderLines,o.id)
+      .reduce((s2,l)=>{const r=recipeById(recipes,l.recipeId);return s2+(r?r.price*l.qty:0);},0)+(o.priceAdj||0);
     return s+netBase(gross,_dashSettings.igvMode);
   },0);
   const costPct=todayNetRevenue>0?todayFoodCost/todayNetRevenue:0;
-  const totalPortions=closedToday.reduce((s,o)=>s+orderLines.filter(l=>l.orderId===o.id).reduce((s2,l)=>s2+l.qty,0),0);
+  const totalPortions=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id).reduce((s2,l)=>s2+l.qty,0),0);
   const totalPaxToday=closedToday.reduce((s,o)=>s+(o.pax||0),0);
   const avgTicketPerPaxToday=totalPaxToday>0?todayRevenue/totalPaxToday:0;
   const critical=products.filter(p=>p.stock<p.minStock*0.4);
@@ -18531,7 +18584,7 @@ function Dashboard({data,setPage,currentUser}){
   const todayWastage=(wastageLog||[]).filter(w=>w.date===today_date);
   const todayWastageCost2=todayWastage.reduce((s,w)=>s+(w.lostValue||0),0);
   const dishSales={};
-  closedToday.forEach(o=>orderLines.filter(l=>l.orderId===o.id).forEach(l=>{dishSales[l.recipeId]=(dishSales[l.recipeId]||0)+l.qty;}));
+  closedToday.forEach(o=>linesOf(orderLines,o.id).forEach(l=>{dishSales[l.recipeId]=(dishSales[l.recipeId]||0)+l.qty;}));
   // Per-recipe: cost % on net base
   const topDishes=recipes.map(r=>{
     const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);
@@ -19271,7 +19324,7 @@ function Inventory({data,setData,toast,logActivity}){
   function ledgerRows(p){
     const rows=[];
     const purchasedQty=purchases.filter(pu=>pu.productId===p.id&&pu.status==="Recibido").reduce((s,pu)=>s+(pu.qty||0),0);
-    const consumedQty=orders.filter(o=>o.status==="closed").reduce((s,o)=>s+orderLines.filter(l=>l.orderId===o.id).reduce((ss,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===p.id);return ss+(bl?bl.qty*l.qty:0);},0),0);
+    const consumedQty=orders.filter(o=>o.status==="closed").reduce((s,o)=>s+linesOf(orderLines,o.id).reduce((ss,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===p.id);return ss+(bl?bl.qty*l.qty:0);},0),0);
     const seedStock=p.stock+consumedQty-purchasedQty;
     let running=seedStock;
     rows.push({label:"Stock inicial",qty:seedStock,running});
@@ -21149,10 +21202,15 @@ function PurchasesTab({data,setData,toast}){
 // ─── DISH AVAILABILITY — kitchen "86" (sold out) + daily portion limit ───────
 // soldOut is a manual kitchen flag. dailyLimit (+ limitDate) is a per-day cap
 // that counts down as portions are ordered and resets when the day changes.
+const _soldToday={orders:undefined,orderLines:undefined,day:undefined,map:new Map()};
 function dishSoldToday(recipeId, orders, orderLines){
-  const t=today();
-  const ids=new Set((orders||[]).filter(o=>o.date===t).map(o=>o.id));
-  return (orderLines||[]).filter(l=>l.recipeId===recipeId&&ids.has(l.orderId)).reduce((s,l)=>s+(+l.qty||0),0);
+  const t=today(),c=_soldToday;
+  if(c.orders!==orders||c.orderLines!==orderLines||c.day!==t){
+    c.orders=orders;c.orderLines=orderLines;c.day=t;c.map=new Map();
+    const ids=new Set((orders||[]).filter(o=>o.date===t).map(o=>o.id));
+    (orderLines||[]).forEach(l=>{if(ids.has(l.orderId))c.map.set(l.recipeId,(c.map.get(l.recipeId)||0)+(+l.qty||0));});
+  }
+  return c.map.get(recipeId)||0;
 }
 function dishAvailability(r, orders, orderLines){
   const soldOut=!!(r&&r.soldOut);
@@ -21180,9 +21238,9 @@ function Sales({data,setData,toast,currentUser}){
   const [filterYear,setFilterYear]=useState("all");
   const recipeCategories=data.recipeCategories||[];
 
-  const orderLinesTotal=oid=>orderLines.filter(l=>l.orderId===oid).reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+  const orderLinesTotal=oid=>linesOf(orderLines,oid).reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
   const orderTotal=oid=>{const base=orderLinesTotal(oid);const ord=orders.find(o=>o.id===oid);return base+(ord?.priceAdj||0);};
-  const orderCost=oid=>orderLines.filter(l=>l.orderId===oid).reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
+  const orderCost=oid=>linesOf(orderLines,oid).reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
   const nextCode=()=>{const nums=orders.map(o=>parseInt(o.code.replace("#",""))||0);const max=nums.length?Math.max(...nums):0;return`#${String(max+1).padStart(3,"0")}`;};
   const dayGroups=()=>{
     const fil=orders.filter(o=>{const[y,m,d]=o.date.split("-");if(filterYear!=="all"&&y!==filterYear)return false;if(filterMonth!=="all"&&m!==filterMonth)return false;if(filterDay!=="all"&&d!==filterDay)return false;return true;});
@@ -21320,7 +21378,7 @@ function Sales({data,setData,toast,currentUser}){
 
   if(view==="detail"&&selectedOrder){
     const ord=orders.find(o=>o.id===selectedOrder.id)||selectedOrder;
-    const lines=orderLines.filter(l=>l.orderId===ord.id);
+    const lines=linesOf(orderLines,ord.id);
     const isOpen=ord.status==="open";
     const linesBase=orderLinesTotal(ord.id);
     const baseTotal=linesBase+(ord.priceAdj||0);
@@ -21361,7 +21419,7 @@ function Sales({data,setData,toast,currentUser}){
       lines.length===0
         ?h('div',{style:{textAlign:"center",padding:"2rem",color:"var(--text3)",fontSize:13}},"Sin platos — agrega el primer plato de la mesa")
         :h('div',{style:{display:"flex",flexDirection:"column",gap:6,marginBottom:16}},
-          lines.map(l=>{const r=recipes.find(r=>r.id===l.recipeId);const lc=recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty;
+          lines.map(l=>{const r=recipeById(recipes,l.recipeId);const lc=recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty;
             return h('div',{key:l.id,style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 14px",display:"flex",alignItems:"center",gap:10}},
               h('div',{style:{flex:1,minWidth:0}},
                 h('div',{style:{fontSize:13,fontWeight:500}},r?.name||l.recipeId),
@@ -21645,7 +21703,7 @@ function Sales({data,setData,toast,currentUser}){
           ),
           h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
             dayOrders.map(o=>{
-              const tot=orderDisplayTotal(o);const lines=orderLines.filter(l=>l.orderId===o.id);const isOpen=o.status==="open";
+              const tot=orderDisplayTotal(o);const lines=linesOf(orderLines,o.id);const isOpen=o.status==="open";
               return h(Card,{key:o.id,onClick:()=>{setSelectedOrder(o);setView("detail");},style:{padding:"12px 14px"}},
                 h('div',{style:{display:"flex",alignItems:"center",gap:12}},
                   h('div',{style:{width:44,height:44,borderRadius:10,flexShrink:0,background:isOpen?"rgba(234,179,8,0.15)":"rgba(34,197,94,0.12)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
@@ -22096,7 +22154,7 @@ function StockCount({data,setData,toast}){
       +orders.filter(o=>o.status==="closed").reduce((s,o)=>{
         const bomLine=bom.find(b=>b.recipeId&&orderLines.find(l=>l.orderId===o.id&&l.recipeId===b.recipeId)&&b.productId===productId);
         if(!bomLine)return s;
-        const qty=orderLines.filter(l=>l.orderId===o.id).reduce((ss,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===productId);return ss+(bl?bl.qty*l.qty:0);},0);
+        const qty=linesOf(orderLines,o.id).reduce((ss,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===productId);return ss+(bl?bl.qty*l.qty:0);},0);
         return s+qty;
       },0);
     running=seedStock;
@@ -22110,7 +22168,7 @@ function StockCount({data,setData,toast}){
       });
     // Sales consumption
     orders.filter(o=>o.status==="closed").sort((a,b)=>a.date.localeCompare(b.date)).forEach(o=>{
-      const consumed=orderLines.filter(l=>l.orderId===o.id).reduce((s,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===productId);return s+(bl?bl.qty*l.qty:0);},0);
+      const consumed=linesOf(orderLines,o.id).reduce((s,l)=>{const bl=bom.find(b=>b.recipeId===l.recipeId&&b.productId===productId);return s+(bl?bl.qty*l.qty:0);},0);
       if(consumed>0){
         running-=consumed;
         rows.push({type:"Venta",label:`Pedido ${o.code}`,qty:-consumed,running,date:o.date});
@@ -22302,7 +22360,7 @@ function PaymentRecon({data,setData,toast}){
   const _settings=getSettings(data);
   const easyTotal=dayOrders.reduce((s,o)=>{
     if(o.total!==undefined) return s+o.total;
-    const base=orderLines.filter(l=>l.orderId===o.id).reduce((ss,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return ss+(r?r.price*l.qty:0);},0);
+    const base=linesOf(orderLines,o.id).reduce((ss,l)=>{const r=recipeById(recipes,l.recipeId);return ss+(r?r.price*l.qty:0);},0);
     return s+orderGrossTotal(base+(o.priceAdj||0),_settings).total;
   },0);
   const orderCount=dayOrders.length;
@@ -22350,7 +22408,7 @@ function PaymentRecon({data,setData,toast}){
       orderCount===0&&h('div',{style:{fontSize:12,color:"var(--text3)",marginTop:4}},"Sin pedidos cerrados en esta fecha. El total de referencia es S/ 0.00."),
       // IGV breakdown for accountant
       _settings.igvMode!=="ninguno"&&orderCount>0&&(()=>{
-        const dayIgv=dayOrders.reduce((s,o)=>s+(o.igvAmount!==undefined?o.igvAmount:igvFromGross(o.total!==undefined?o.total:orderGrossTotal(orderLines.filter(l=>l.orderId===o.id).reduce((ss,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return ss+(r?r.price*l.qty:0);},0)+(o.priceAdj||0),_settings).total,"incluido")),0);
+        const dayIgv=dayOrders.reduce((s,o)=>s+(o.igvAmount!==undefined?o.igvAmount:igvFromGross(o.total!==undefined?o.total:orderGrossTotal(linesOf(orderLines,o.id).reduce((ss,l)=>{const r=recipeById(recipes,l.recipeId);return ss+(r?r.price*l.qty:0);},0)+(o.priceAdj||0),_settings).total,"incluido")),0);
         const dayNet=easyTotal-dayIgv;
         return h('div',{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(249,115,22,0.25)",display:"flex",gap:16}},
           h('div',null,
@@ -22484,7 +22542,7 @@ function MenuEngineering({data}){
 
   const dishVolume={};
   orders.filter(o=>o.status==="closed").forEach(o=>{
-    orderLines.filter(l=>l.orderId===o.id).forEach(l=>{
+    linesOf(orderLines,o.id).forEach(l=>{
       dishVolume[l.recipeId]=(dishVolume[l.recipeId]||0)+l.qty;
     });
   });
@@ -23155,10 +23213,10 @@ function WeeklyReport({data}){
   const isOldestWeek=weekOffset===-(minWeeks-1);
 
   const weekOrders=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
-  const weekLines=orderLines.filter(l=>weekOrders.some(o=>o.id===l.orderId));
+  const weekLines=linesOfOrders(orderLines,weekOrders);
 
   // Revenue
-  const revenue=weekLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+  const revenue=weekLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
   // Food cost (BOM-based)
   const foodCost=weekLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
   const grossMargin=revenue-foodCost;
@@ -23174,8 +23232,8 @@ function WeeklyReport({data}){
   for(let i=0;i<7;i++){
     const d=new Date(start);d.setDate(d.getDate()+i);
     const dateStr=d.toISOString().slice(0,10);
-    const dayLines=orderLines.filter(l=>orders.some(o=>o.id===l.orderId&&o.date===dateStr&&o.status==="closed"));
-    const dayRev=dayLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const dayLines=linesOfOrders(orderLines,orders.filter(o=>o.date===dateStr&&o.status==="closed"));
+    const dayRev=dayLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
     days.push({label:["L","M","X","J","V","S","D"][i],v:dayRev});
   }
 
@@ -23183,7 +23241,7 @@ function WeeklyReport({data}){
   const dishMap={};
   weekLines.forEach(l=>{
     if(!dishMap[l.recipeId])dishMap[l.recipeId]={qty:0,revenue:0,foodCost:0};
-    const r=recipes.find(r=>r.id===l.recipeId);
+    const r=recipeById(recipes,l.recipeId);
     dishMap[l.recipeId].qty+=l.qty;
     dishMap[l.recipeId].revenue+=(r?r.price*l.qty:0);
     dishMap[l.recipeId].foodCost+=recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty;
@@ -23339,8 +23397,8 @@ function MonthlyPL({data}){
 
   // Sales
   const mOrders=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
-  const mLines=orderLines.filter(l=>mOrders.some(o=>o.id===l.orderId));
-  const revenue=mLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+  const mLines=linesOfOrders(orderLines,mOrders);
+  const revenue=mLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
   const foodCostBOM=mLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
   const portions=mLines.reduce((s,l)=>s+l.qty,0);
   const totalPax=mOrders.reduce((s,o)=>s+(o.pax||0),0);
@@ -23380,8 +23438,8 @@ function MonthlyPL({data}){
   while(cur.toISOString().slice(0,10)<=end){
     const wStart=cur.toISOString().slice(0,10);
     const wEnd=new Date(Math.min(cur.getTime()+6*86400000,new Date(end).getTime())).toISOString().slice(0,10);
-    const wLines=orderLines.filter(l=>orders.some(o=>o.id===l.orderId&&o.status==="closed"&&inRange(o.date,wStart,wEnd)));
-    const wRev=wLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const wLines=linesOfOrders(orderLines,orders.filter(o=>o.status==="closed"&&inRange(o.date,wStart,wEnd)));
+    const wRev=wLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
     const wFC=wLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
     const wPurch=purchases.filter(p=>p.status==="Recibido"&&inRange(p.date,wStart,wEnd)).reduce((s,p)=>s+(p.totalCost||0),0);
     const wWaste=(wastageLog||[]).filter(w=>inRange(w.date,wStart,wEnd)).reduce((s,w)=>s+(w.lostValue||0),0);
@@ -23908,8 +23966,8 @@ function MonthlySummary({data}){
     const lastDay=new Date(year,month,0).getDate();
     const end=`${year}-${pad(month)}-${pad(lastDay)}`;
     const mOrders=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
-    const mLines=orderLines.filter(l=>mOrders.some(o=>o.id===l.orderId));
-    const revenue=mLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const mLines=linesOfOrders(orderLines,mOrders);
+    const revenue=mLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
     const foodCost=mLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
     const portions=mLines.reduce((s,l)=>s+l.qty,0);
     const orderCount=mOrders.length;
@@ -23934,7 +23992,7 @@ function MonthlySummary({data}){
     const dishMap={};
     mLines.forEach(l=>{
       if(!dishMap[l.recipeId])dishMap[l.recipeId]={qty:0,revenue:0,foodCost:0};
-      const r=recipes.find(r=>r.id===l.recipeId);
+      const r=recipeById(recipes,l.recipeId);
       dishMap[l.recipeId].qty+=l.qty;
       dishMap[l.recipeId].revenue+=(r?r.price*l.qty:0);
       dishMap[l.recipeId].foodCost+=recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty;
@@ -24503,8 +24561,8 @@ function FullReport({data}){
 
   // ── Sales ──
   const mOrders=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
-  const mLines=orderLines.filter(l=>mOrders.some(o=>o.id===l.orderId));
-  const revenue=mLines.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+  const mLines=linesOfOrders(orderLines,mOrders);
+  const revenue=mLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
   const foodCost=mLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
   const portions=mLines.reduce((s,l)=>s+l.qty,0);
   const totalPax=mOrders.reduce((s,o)=>s+(o.pax||0),0);
@@ -24532,7 +24590,7 @@ function FullReport({data}){
   const discTotal=mDisc.reduce((s,o)=>s+Math.abs(o.priceAdj||0),0);
   // ── Top dishes ──
   const dishAgg={};
-  mLines.forEach(l=>{const r=recipes.find(x=>x.id===l.recipeId);if(!r)return;const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!dishAgg[r.id])dishAgg[r.id]={name:r.name,units:0,revenue:0,margin:0,fc,net};dishAgg[r.id].units+=l.qty;dishAgg[r.id].revenue+=r.price*l.qty;dishAgg[r.id].margin+=(net-fc)*l.qty;});
+  mLines.forEach(l=>{const r=recipeById(recipes,l.recipeId);if(!r)return;const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!dishAgg[r.id])dishAgg[r.id]={name:r.name,units:0,revenue:0,margin:0,fc,net};dishAgg[r.id].units+=l.qty;dishAgg[r.id].revenue+=r.price*l.qty;dishAgg[r.id].margin+=(net-fc)*l.qty;});
   const topDishes=Object.values(dishAgg).sort((a,b)=>b.units-a.units);
   // ── Weekly breakdown ──
   const weeks=[];
@@ -24541,8 +24599,8 @@ function FullReport({data}){
     const wStart=cur.toISOString().slice(0,10);
     const wEnd=new Date(Math.min(cur.getTime()+6*86400000,new Date(end).getTime())).toISOString().slice(0,10);
     const wOrders=mOrders.filter(o=>inRange(o.date,wStart,wEnd));
-    const wLines=mLines.filter(l=>wOrders.some(o=>o.id===l.orderId));
-    const wRev=wLines.reduce((s,l)=>{const r=recipes.find(x=>x.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const wLines=linesOfOrders(mLines,wOrders);
+    const wRev=wLines.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
     const wFC=wLines.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
     weeks.push({label:"Sem "+(weeks.length+1),from:wStart,to:wEnd,rev:wRev,fc:wFC,orders:wOrders.length});
     cur=new Date(cur.getTime()+7*86400000);
@@ -24553,8 +24611,8 @@ function FullReport({data}){
   function calcMonthKPIs(y,m){
     const st=`${y}-${pad(m)}-01`;const ld=new Date(y,m,0).getDate();const en=`${y}-${pad(m)}-${pad(ld)}`;
     const os=orders.filter(o=>o.status==="closed"&&inRange(o.date,st,en));
-    const ls=orderLines.filter(l=>os.some(o=>o.id===l.orderId));
-    const rev=ls.reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);
+    const ls=linesOfOrders(orderLines,os);
+    const rev=ls.reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);
     const fc=ls.reduce((s,l)=>s+recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty,0);
     const ig=S.igvMode==="incluido"?rev-rev/1.18:S.igvMode==="excluido"?rev*IGV_RATE:0;const nr=rev-ig;
     return {nr,fcPct:nr>0?fc/nr*100:0,gm:nr-fc,orders:os.length,ticket:os.length>0?rev/os.length:0};
@@ -24573,12 +24631,12 @@ function FullReport({data}){
   // ── Sales by day of week ──
   const DOW=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
   const dowRev=[0,0,0,0,0,0,0],dowCount=[0,0,0,0,0,0,0];
-  mOrders.forEach(o=>{const di=new Date(o.date+"T12:00:00").getDay();const oRev=mLines.filter(l=>l.orderId===o.id).reduce((s,l)=>{const r=recipes.find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0);dowRev[di]+=oRev;dowCount[di]++;});
+  mOrders.forEach(o=>{const di=new Date(o.date+"T12:00:00").getDay();const oRev=linesOf(mLines,o.id).reduce((s,l)=>{const r=recipeById(recipes,l.recipeId);return s+(r?r.price*l.qty:0);},0);dowRev[di]+=oRev;dowCount[di]++;});
   const dowData=[1,2,3,4,5,6,0].map(di=>({dia:DOW[di],rev:dowRev[di],count:dowCount[di],pct:revenue>0?dowRev[di]/revenue*100:0}));
   const bestDow=dowData.reduce((b,d)=>d.rev>b.rev?d:b,{rev:-1,dia:"—"});
   // ── Sales by category ──
   const catAgg={};
-  mLines.forEach(l=>{const r=recipes.find(x=>x.id===l.recipeId);if(!r)return;const cat=r.category||"Sin categoría";const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!catAgg[cat])catAgg[cat]={rev:0,margin:0,units:0};catAgg[cat].rev+=r.price*l.qty;catAgg[cat].margin+=(net-fc)*l.qty;catAgg[cat].units+=l.qty;});
+  mLines.forEach(l=>{const r=recipeById(recipes,l.recipeId);if(!r)return;const cat=r.category||"Sin categoría";const fc=recipeFoodCost(r.id,products,bom,subBom,subRecipes);const net=netBase(r.price,S.igvMode);if(!catAgg[cat])catAgg[cat]={rev:0,margin:0,units:0};catAgg[cat].rev+=r.price*l.qty;catAgg[cat].margin+=(net-fc)*l.qty;catAgg[cat].units+=l.qty;});
   const catRows=Object.entries(catAgg).sort((a,b)=>b[1].rev-a[1].rev);
   // ── Payment methods (from Cuadre de Caja) ──
   const mRecons=(paymentRecons||[]).filter(pr=>inRange(pr.date,start,end));
