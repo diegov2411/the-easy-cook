@@ -17396,13 +17396,17 @@ module.exports.hydrateRoot = window.__ReactDOMClient && window.__ReactDOMClient.
 window.ReactDOM=module.exports;
 })();
 </script>
+<!-- Supabase cloud backend (loaded from CDN). If this fails to load (offline),
+     window.supabase stays undefined and the app runs in pure-local mode. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.10.0";
-const APP_BUILD   = "Sprint 18 — Julio 2026";
+const APP_VERSION = "4.11.0";
+const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.11.0", date:"Ago 2026", notes:"¡La app ahora vive en la nube! El dueño entra con su correo y contraseña, y sus datos se guardan y sincronizan solos entre dispositivos (con respaldo local para seguir trabajando aunque se caiga el internet). Para el equipo: en vez de compartir tu correo, generas un 'código del equipo' desde Configuración → Nube y equipo; cada empleado lo ingresa una vez en su celular y listo — sin correos ni contraseñas. Adentro, siguen los PIN por persona de siempre. Si pierdes un equipo o cambia tu personal, puedes bloquear un dispositivo, desconectarlos todos o generar un código nuevo. También hay un botón para subir a la nube los datos que ya tenías en este dispositivo."},
   {v:"4.10.0", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
   {v:"4.9.2", date:"Jul 2026", notes:"Dos secciones más en el 'Informe completo': un gráfico de barras con la tendencia de ventas de los últimos 6 meses (con el promedio marcado y una tabla de apoyo con ventas netas, pedidos y costo % de cada mes), y 'Formas de pago' — cuánto entró por Yape, efectivo y tarjeta en el mes, con el % de cada uno y la diferencia contra lo registrado en la app. Ambas salen también en el PDF."},
   {v:"4.9.1", date:"Jul 2026", notes:"El 'Informe completo' ahora trae más análisis: comparación con el mes anterior (ventas netas, costo de alimentos %, margen, pedidos y ticket — con flechas de mejora/caída), ventas por día de la semana (con el mejor día del mes) y ventas por categoría. Además Reportes queda más ordenado: se unieron 'P&L Mensual' y 'Resumen Mensual' dentro del Informe completo, dejando 3 pestañas claras — Informe completo, Semanal y Costos."},
@@ -17441,7 +17445,23 @@ const CHANGELOG = [
   {v:"1.1.0", date:"Mar 2026", notes:"Sprint 1: Inventario, Recetas, BOM, cálculo de food cost, órdenes y ventas."},
 ];
 
-const {useState,useEffect,useCallback,useRef,useLayoutEffect,useMemo,createElement:h,Fragment} = React;
+const {useState,useEffect,useCallback,useRef,useLayoutEffect,useMemo,useContext,createElement:h,Fragment} = React;
+
+// ─── SUPABASE CLOUD BACKEND ────────────────────────────────────────────────────
+// Production talks to Supabase (multi-restaurant, real logins, multi-device).
+// The publishable/anon key is PUBLIC on purpose — every table is gated by RLS,
+// so it is safe to embed in the browser. localStorage stays as the offline cache.
+const SB_URL  = "https://bgwtyiabiwqolktewfeg.supabase.co";
+const SB_ANON = "sb_publishable_IYK-9X0bYwDyHG-rO0eJcQ_8OIxf1FI";
+// Only build a client if the CDN script loaded. If it didn't (offline / blocked),
+// sb stays null and Root falls back to pure-local mode so nobody is locked out.
+const sb = (typeof window!=="undefined" && window.supabase && window.supabase.createClient)
+  ? window.supabase.createClient(SB_URL, SB_ANON, {auth:{persistSession:true,autoRefreshToken:true}})
+  : null;
+
+// React context carrying the live cloud session down to App / SettingsPage.
+// Value is null when running pure-local (no Supabase).
+const CloudCtx = React.createContext(null);
 
 // ── useChartWidth ─────────────────────────────────────────────────────────────
 // Returns a [ref, width] pair. Attach ref to a container div.
@@ -17496,6 +17516,44 @@ const INIT = {
     foodCostTarget:30,
   },
 };
+
+// ─── CLOUD SYNC HELPERS ────────────────────────────────────────────────────────
+// The app's `data` object maps 1:1 to the `collections` table: one row per
+// top-level key { restaurant_id, name, data }. Load = fetch all rows and
+// reassemble; save = batch-upsert every key in one call.
+const COLLECTION_KEYS = Object.keys(INIT);
+
+// Fetch every collection for a restaurant → a { key: value } object, or null
+// if the restaurant has no rows yet (brand-new / never uploaded). Throws on a
+// network/RLS error so the caller can fall back to the local cache.
+async function cloudFetchAll(rid){
+  const {data,error} = await sb.from("collections").select("name,data").eq("restaurant_id",rid);
+  if(error) throw error;
+  if(!data || !data.length) return null;
+  const out={};
+  for(const row of data) out[row.name]=row.data;
+  return out;
+}
+
+// Upsert all collections for a restaurant from an app `data` object.
+async function cloudUpsertAll(rid,appData){
+  const rows=COLLECTION_KEYS.map(name=>({
+    restaurant_id:rid,
+    name,
+    data:(appData[name]!==undefined?appData[name]:INIT[name]),
+  }));
+  const {error}=await sb.from("collections").upsert(rows,{onConflict:"restaurant_id,name"});
+  if(error) throw error;
+}
+
+// Small trailing debounce so a burst of edits coalesces into one cloud write.
+function debounce(fn,ms){
+  let t=null;
+  return function(...args){
+    if(t)clearTimeout(t);
+    t=setTimeout(()=>{t=null;fn(...args);},ms);
+  };
+}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const fmtCost = n=>`S/ ${(+n||0).toFixed(2)}`;
@@ -25103,6 +25161,164 @@ function ActivityLog({data,setPage}){
 }
 
 // ─── SETTINGS PAGE ───────────────────────────────────────────────────────────
+// ─── CLOUD SYNC + DEVICE MANAGEMENT (production only) ───────────────────────
+// Rendered inside Settings. Shows connection status, a one-time "upload my data
+// to the cloud" button, and — for the owner — the team code and device controls
+// (rotate code, block one device, disconnect all devices).
+function CloudSyncSection({data,toast}){
+  const cloud=useContext(CloudCtx);
+  const [uploading,setUploading]=useState(false);
+  const [code,setCode]=useState(cloud?cloud.teamCode:null);
+  const [busy,setBusy]=useState(false);
+  const [devices,setDevices]=useState(null);
+  const [showCode,setShowCode]=useState(false);
+
+  const loadDevices=useCallback(()=>{
+    if(!cloud||!cloud.isOwner)return;
+    cloud.listDevices().then(setDevices).catch(()=>setDevices([]));
+  },[cloud]);
+
+  useEffect(()=>{ if(cloud&&cloud.isOwner) loadDevices(); },[cloud,loadDevices]);
+
+  if(!cloud) return null; // pure-local mode (no Supabase) → nothing to show
+
+  const upload=async()=>{
+    setUploading(true);
+    try{ await cloud.push(data); toast("Datos subidos a la nube correctamente","success"); }
+    catch(e){ toast("No se pudo subir: "+(e.message||"error"),"error"); }
+    setUploading(false);
+  };
+  const rotate=async()=>{
+    setBusy(true);
+    try{ const c=await cloud.rotateCode(); setCode(c); toast("Nuevo código generado","success"); }
+    catch(e){ toast("No se pudo cambiar el código: "+(e.message||"error"),"error"); }
+    setBusy(false);
+  };
+  const block=async(userId)=>{
+    setBusy(true);
+    try{ await cloud.revokeDevice(userId); toast("Dispositivo bloqueado","success"); loadDevices(); }
+    catch(e){ toast("No se pudo bloquear: "+(e.message||"error"),"error"); }
+    setBusy(false);
+  };
+  const cutAll=async()=>{
+    if(!window.confirm("¿Desconectar TODOS los dispositivos del equipo? Tendrás que compartir un código nuevo. Tu cuenta de dueño no se ve afectada."))return;
+    setBusy(true);
+    try{
+      const n=await cloud.revokeAllDevices();
+      const c=await cloud.rotateCode(); setCode(c);
+      toast((n||0)+" dispositivo(s) desconectado(s). Código nuevo generado.","success");
+      loadDevices();
+    }catch(e){ toast("No se pudo desconectar: "+(e.message||"error"),"error"); }
+    setBusy(false);
+  };
+
+  const activeDevices=(devices||[]).filter(d=>d.active);
+
+  return h('div',{style:{marginTop:28,borderTop:"1px solid var(--border)",paddingTop:20}},
+    h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:4}},"Nube y equipo"),
+
+    // Connection status
+    h('div',{style:{
+      display:"flex",alignItems:"center",gap:8,marginBottom:14,padding:"10px 12px",
+      borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)"
+    }},
+      h('div',{style:{width:8,height:8,borderRadius:"50%",flexShrink:0,
+        background:cloud.online?"var(--green)":"var(--yellow)"}}),
+      h('div',{style:{flex:1,minWidth:0}},
+        h('div',{style:{fontSize:12,fontWeight:600}},
+          cloud.online?"Conectado a la nube":"Sin conexión — se sincronizará al reconectar"),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+          (cloud.isOwner?"Dueño":"Dispositivo del equipo")+(cloud.email?" · "+cloud.email:""))
+      )
+    ),
+
+    // One-time upload
+    h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:8,lineHeight:1.5}},
+      "Sube los datos que ya tienes en este dispositivo para respaldarlos en la nube. Después, todo se sincroniza solo."),
+    h('button',{onClick:upload,disabled:uploading,style:{
+      width:"100%",padding:"12px",borderRadius:"var(--radius)",fontSize:13,fontWeight:700,
+      fontFamily:"var(--sora)",cursor:uploading?"default":"pointer",border:"1px solid var(--border2)",
+      background:"var(--surface2)",color:"var(--text)",marginBottom:cloud.isOwner?20:8
+    }},uploading?"Subiendo…":"☁ Subir mis datos actuales a la nube"),
+
+    // Owner-only: team code + devices
+    cloud.isOwner&&h(Fragment,null,
+      h('div',{style:{borderTop:"1px solid var(--border)",paddingTop:16,marginBottom:4}},
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:12,fontWeight:700,marginBottom:4}},
+          "Código del equipo"),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:10,lineHeight:1.5}},
+          "Comparte este código para que un empleado use la app en su celular. No necesita correo ni contraseña. Si pierdes un equipo o cambias de personal, genera uno nuevo y el anterior deja de servir.")
+      ),
+      h('div',{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
+        h('div',{style:{
+          flex:1,fontFamily:"var(--sora)",fontSize:22,fontWeight:800,letterSpacing:"0.18em",
+          textAlign:"center",padding:"12px",borderRadius:"var(--radius)",
+          border:"1px dashed var(--border2)",background:"var(--surface)",userSelect:"all"
+        }},code?(showCode?code:"••••••"):"—"),
+        h('button',{onClick:()=>setShowCode(v=>!v),style:{
+          padding:"10px 12px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,cursor:"pointer",
+          border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text2)"
+        }},showCode?"Ocultar":"Ver")
+      ),
+      h('div',{style:{display:"flex",gap:10,marginBottom:20}},
+        h('button',{onClick:()=>{ if(code){ try{navigator.clipboard.writeText(code);toast("Código copiado","success");}catch(e){} } },
+          disabled:!code||!showCode,style:{
+          flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,
+          cursor:(code&&showCode)?"pointer":"default",border:"1px solid var(--border2)",
+          background:"var(--surface2)",color:(code&&showCode)?"var(--text)":"var(--text3)"
+        }},"Copiar código"),
+        h('button',{onClick:rotate,disabled:busy,style:{
+          flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,
+          cursor:busy?"default":"pointer",border:"1px solid var(--border2)",
+          background:"var(--surface2)",color:"var(--text)"
+        }},"Generar código nuevo")
+      ),
+
+      // Device list
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:12,fontWeight:700,marginBottom:8}},
+        "Dispositivos conectados"+(activeDevices.length?" ("+activeDevices.length+")":"")),
+      devices===null
+        ? h('div',{style:{fontSize:12,color:"var(--text3)",padding:"8px 0"}},"Cargando…")
+        : activeDevices.length===0
+          ? h('div',{style:{fontSize:12,color:"var(--text3)",padding:"10px 12px",borderRadius:"var(--radius)",
+              border:"1px solid var(--border)",background:"var(--surface)"}},
+              "Aún no hay dispositivos del equipo conectados.")
+          : h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
+              activeDevices.map(d=>h('div',{key:d.user_id,style:{
+                display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)"
+              }},
+                h('div',{style:{fontSize:16}},"📱"),
+                h('div',{style:{flex:1,minWidth:0}},
+                  h('div',{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+                    d.device_label||"Dispositivo del equipo"),
+                  h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:1}},
+                    "Última vez: "+(d.last_seen_at?fmtDate(d.last_seen_at):"—"))
+                ),
+                h('button',{onClick:()=>block(d.user_id),disabled:busy,style:{
+                  padding:"6px 10px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:600,
+                  cursor:busy?"default":"pointer",border:"1px solid var(--red)",
+                  background:"rgba(239,68,68,0.1)",color:"var(--red)"
+                }},"Bloquear")
+              ))
+            ),
+      activeDevices.length>0&&h('button',{onClick:cutAll,disabled:busy,style:{
+        width:"100%",marginTop:12,padding:"11px",borderRadius:"var(--radius)",fontSize:12,fontWeight:700,
+        cursor:busy?"default":"pointer",border:"1px solid var(--red)",
+        background:"rgba(239,68,68,0.08)",color:"var(--red)"
+      }},"Desconectar todos los dispositivos")
+    ),
+
+    // Cloud logout
+    h('div',{style:{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:20}},
+      h('button',{onClick:()=>{ if(window.confirm("¿Cerrar sesión de la nube en este dispositivo?")) cloud.logout(); },style:{
+        width:"100%",padding:"11px",borderRadius:"var(--radius)",fontSize:12,fontWeight:600,
+        cursor:"pointer",border:"1px solid var(--border2)",background:"transparent",color:"var(--text2)"
+      }},"Cerrar sesión de la nube")
+    )
+  );
+}
+
 function SettingsPage({data,setData,toast}){
   const s=getSettings(data);
   const [form,setForm]=useState({...s});
@@ -25427,6 +25643,9 @@ function SettingsPage({data,setData,toast}){
         "⚠ Importar reemplaza todos los datos actuales. Exporta un backup antes de importar."
       )
     ),
+
+    // ── Nube y equipo (sincronización + dispositivos) ───────────────────────────
+    h(CloudSyncSection,{data,toast}),
 
     // ── Acerca de (info bubble) ─────────────────────────────────────────────────
     h('div',{style:{marginTop:24,borderTop:"1px solid var(--border)",paddingTop:20}},
@@ -25757,19 +25976,32 @@ function SetupWizard({data,ownerName,onGo}){
 }
 
 function App(){
+  const cloud=useContext(CloudCtx);
   const [page,setPage]=useState("dashboard");
-  const [data,setDataRaw]=useState(()=>loadData());
+  // Seed from the cloud snapshot Root already fetched when signed in; otherwise
+  // from the local cache (offline, or pure-local mode with no Supabase).
+  const [data,setDataRaw]=useState(()=>
+    cloud&&cloud.initialData ? migrateData(cloud.initialData) : loadData());
   const [toastMsg,setToastMsg]=useState(null);
   const [currentUser,setCurrentUser]=useState(null);
   const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
 
+  // Debounced cloud push so a burst of edits collapses into one upsert.
+  // Background pushes swallow errors (offline / device just revoked) — the
+  // localStorage cache is always written first, so no edit is ever lost.
+  const cloudPush=useMemo(()=>
+    (cloud&&cloud.restaurantId&&cloud.push)
+      ? debounce((d)=>{Promise.resolve(cloud.push(d)).catch(()=>{});},1200)
+      : null,[cloud]);
+
   const setData=useCallback((updater)=>{
     setDataRaw(prev=>{
       const next=typeof updater==="function"?updater(prev):updater;
-      try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
+      try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){} // instant offline cache
+      if(cloudPush) cloudPush(next);                                       // background cloud sync
       return next;
     });
-  },[]);
+  },[cloudPush]);
 
   // Activity logger
   const logActivity=useCallback((action,target,module)=>{
@@ -25881,6 +26113,226 @@ function App(){
   );
 }
 
+// ─── CLOUD AUTH LAYER ────────────────────────────────────────────────────────
+// Sits ABOVE the existing PIN flow. One cloud session per restaurant (owner
+// email/password, or an anonymous device joined with a team code); the PIN
+// screen still picks who's on the till. See supabase/03_devices.sql.
+
+// Translate the most common Supabase auth errors to plain Spanish.
+function traducirAuthError(msg){
+  const m=(msg||"").toLowerCase();
+  if(m.includes("invalid login")) return "Correo o contraseña incorrectos";
+  if(m.includes("already registered")||m.includes("already been registered")) return "Ese correo ya tiene una cuenta. Inicia sesión.";
+  if(m.includes("anonymous")&&m.includes("disabled")) return "El acceso por código no está habilitado todavía. Avísale al administrador.";
+  if(m.includes("password")) return "La contraseña debe tener al menos 6 caracteres";
+  if(m.includes("email")) return "Revisa el correo ingresado";
+  if(m.includes("network")||m.includes("fetch")) return "Sin conexión. Revisa tu internet.";
+  return msg||"Ocurrió un error";
+}
+
+function CloudSplash({msg}){
+  return h('div',{style:{
+    position:"fixed",inset:0,background:"var(--bg)",zIndex:200,
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16
+  }},
+    h('div',{style:{width:52,height:52,borderRadius:16,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}},"👨‍🍳"),
+    h('div',{style:{width:26,height:26,border:"3px solid var(--border2)",borderTopColor:"var(--accent)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}),
+    h('div',{style:{fontSize:12,color:"var(--text3)"}},msg||"Cargando…")
+  );
+}
+
+// Login (owner) / Crear cuenta (owner) / Unir dispositivo (empleado, código).
+function AuthScreen({reload}){
+  const [mode,setMode]=useState("login");
+  const [form,setForm]=useState({email:"",password:"",bizName:"",ruc:"",code:"",label:""});
+  const [error,setError]=useState("");
+  const [note,setNote]=useState("");
+  const [busy,setBusy]=useState(false);
+  const set=(k,v)=>{setForm(f=>({...f,[k]:v}));setError("");setNote("");};
+  const switchMode=(m)=>{setMode(m);setError("");setNote("");};
+
+  const doLogin=async()=>{
+    if(!form.email.trim()||!form.password){setError("Ingresa correo y contraseña");return;}
+    setBusy(true);setError("");
+    const {error}=await sb.auth.signInWithPassword({email:form.email.trim(),password:form.password});
+    if(error){setError(traducirAuthError(error.message));setBusy(false);return;}
+    // Session change → Root re-resolves membership → App. Keep the spinner up.
+  };
+
+  const doSignup=async()=>{
+    if(!form.email.trim()||!form.password){setError("Ingresa correo y contraseña");return;}
+    if(form.password.length<6){setError("La contraseña debe tener al menos 6 caracteres");return;}
+    if(!form.bizName.trim()){setError("Ingresa el nombre del restaurante");return;}
+    setBusy(true);setError("");
+    const {data,error}=await sb.auth.signUp({email:form.email.trim(),password:form.password});
+    if(error){setError(traducirAuthError(error.message));setBusy(false);return;}
+    if(!data.session){
+      setNote("Te enviamos un correo para confirmar la cuenta. Confírmalo y luego inicia sesión.");
+      setBusy(false);setMode("login");return;
+    }
+    const {error:rpcErr}=await sb.rpc("create_my_restaurant",
+      {p_name:form.bizName.trim(),p_ruc:form.ruc.trim()||null});
+    if(rpcErr){setError("Cuenta creada, pero no se pudo registrar el restaurante: "+rpcErr.message);setBusy(false);return;}
+    reload(); // membership now exists → advance to the app
+  };
+
+  const doJoin=async()=>{
+    if(!form.code.trim()){setError("Ingresa el código del equipo");return;}
+    setBusy(true);setError("");
+    const {error:anonErr}=await sb.auth.signInAnonymously();
+    if(anonErr){setError(traducirAuthError(anonErr.message));setBusy(false);return;}
+    const {error:joinErr}=await sb.rpc("join_restaurant_with_code",
+      {p_code:form.code.trim(),p_label:form.label.trim()||null});
+    if(joinErr){
+      await sb.auth.signOut(); // undo the anon session so we return cleanly
+      const m=(joinErr.message||"").toLowerCase();
+      setError(m.includes("inv")||m.includes("cód")?"Código inválido. Pídeselo al dueño.":("No se pudo unir: "+joinErr.message));
+      setBusy(false);return;
+    }
+    reload(); // membership now exists → advance to the app
+  };
+
+  const submit=()=>{ if(mode==="login")doLogin(); else if(mode==="signup")doSignup(); else doJoin(); };
+
+  const tab=(id,label)=>h('button',{onClick:()=>switchMode(id),style:{
+    flex:1,padding:"9px 4px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:"pointer",
+    fontFamily:"var(--sora)",border:"none",
+    background:mode===id?"var(--accent)":"var(--surface2)",
+    color:mode===id?"#fff":"var(--text2)",transition:"all .15s"
+  }},label);
+
+  return h('div',{style:{
+    position:"fixed",inset:0,background:"var(--bg)",zIndex:200,
+    display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 20px"
+  }},
+    h('div',{className:"pin-login-inner",style:{width:"100%",maxWidth:400}},
+      h('div',{style:{textAlign:"center",marginBottom:22}},
+        h('div',{style:{width:52,height:52,borderRadius:16,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 12px"}},"👨‍🍳"),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:700}},"The Easy Cook"),
+        h('div',{style:{fontSize:13,color:"var(--text2)",marginTop:6,lineHeight:1.5}},
+          mode==="join"
+            ?"Ingresa el código que te dio el dueño para usar la app en este equipo."
+            :"Entra a la cuenta de tu restaurante o crea una nueva.")
+      ),
+
+      h('div',{style:{display:"flex",gap:6,marginBottom:18,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
+        tab("login","Iniciar sesión"),
+        tab("signup","Crear cuenta"),
+        tab("join","Unir equipo")
+      ),
+
+      mode==="login"&&h(Fragment,null,
+        h(FormRow,{label:"Correo"},
+          h('input',{type:"email",value:form.email,autoComplete:"email",
+            onChange:e=>set("email",e.target.value),placeholder:"tucorreo@ejemplo.com"})),
+        h(FormRow,{label:"Contraseña"},
+          h('input',{type:"password",value:form.password,autoComplete:"current-password",
+            onChange:e=>set("password",e.target.value),placeholder:"••••••••"}))
+      ),
+
+      mode==="signup"&&h(Fragment,null,
+        h(FormRow,{label:"Correo"},
+          h('input',{type:"email",value:form.email,autoComplete:"email",
+            onChange:e=>set("email",e.target.value),placeholder:"tucorreo@ejemplo.com"})),
+        h(FormRow,{label:"Contraseña (mín. 6)"},
+          h('input',{type:"password",value:form.password,autoComplete:"new-password",
+            onChange:e=>set("password",e.target.value),placeholder:"••••••••"})),
+        h('div',{style:{borderTop:"1px solid var(--border)",paddingTop:12,marginTop:12,marginBottom:2}},
+          h('div',{style:{fontSize:12,fontWeight:600,color:"var(--text2)",marginBottom:10}},"Tu restaurante")),
+        h(FormRow,{label:"Nombre del restaurante"},
+          h('input',{value:form.bizName,onChange:e=>set("bizName",e.target.value),placeholder:"ej. Andiamo Café Trattoria"})),
+        h(FormRow,{label:"RUC (opcional)"},
+          h('input',{value:form.ruc,inputMode:"numeric",
+            onChange:e=>set("ruc",e.target.value.replace(/\D/g,"").slice(0,11)),placeholder:"ej. 20123456789"}))
+      ),
+
+      mode==="join"&&h(Fragment,null,
+        h(FormRow,{label:"Código del equipo"},
+          h('input',{value:form.code,autoCapitalize:"characters",
+            onChange:e=>set("code",e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6)),
+            placeholder:"ej. K7P2QM",style:{letterSpacing:"0.15em",fontWeight:700,textAlign:"center"}})),
+        h(FormRow,{label:"Nombre de este equipo (opcional)"},
+          h('input',{value:form.label,onChange:e=>set("label",e.target.value),placeholder:"ej. Caja 1, Celular de Juan"}))
+      ),
+
+      error&&h('div',{style:{fontSize:12,color:"var(--red)",margin:"4px 0 12px",fontWeight:500,textAlign:"center"}},error),
+      note&&h('div',{style:{fontSize:12,color:"var(--green)",margin:"4px 0 12px",fontWeight:500,textAlign:"center",lineHeight:1.5}},note),
+
+      h(Btn,{onClick:submit,size:"lg",disabled:busy,style:{width:"100%",marginTop:6}},
+        busy?"Un momento…":(mode==="login"?"Iniciar sesión":mode==="signup"?"Crear cuenta y restaurante":"Unir este equipo"))
+    )
+  );
+}
+
+// Resolves the cloud session → restaurant membership → hydrated data, then hands
+// off to App. Falls back to the local cache when the network is unreachable.
+function CloudRoot(){
+  const [booting,setBooting]=useState(true);
+  const [session,setSession]=useState(null);
+  const [ctx,setCtx]=useState(null);      // resolved CloudCtx value, or null
+  const [reloadN,setReloadN]=useState(0);
+  const reload=useCallback(()=>setReloadN(n=>n+1),[]);
+
+  // Track the Supabase auth session (persisted across reloads by supabase-js).
+  useEffect(()=>{
+    let sub=null;
+    sb.auth.getSession().then(({data})=>setSession(data.session||null)).catch(()=>setSession(null));
+    try{
+      const r=sb.auth.onAuthStateChange((_e,s)=>setSession(s||null));
+      sub=r.data.subscription;
+    }catch(e){}
+    return ()=>{ try{sub&&sub.unsubscribe();}catch(e){} };
+  },[]);
+
+  // Resolve membership + hydrate collections whenever the session (or reload) changes.
+  useEffect(()=>{
+    let cancel=false;
+    (async()=>{
+      if(!session){ if(!cancel){setCtx(null);setBooting(false);} return; }
+      let membership=null, online=true;
+      try{
+        const {data,error}=await sb.from("memberships")
+          .select("restaurant_id,role,active").eq("active",true).limit(1);
+        if(error)throw error;
+        membership=(data&&data[0])||null;
+      }catch(e){ online=false; }
+      if(cancel)return;
+      if(!membership){ setCtx(null); setBooting(false); return; }
+
+      const rid=membership.restaurant_id, isOwner=membership.role==="owner";
+      let initialData=null, teamCode=null;
+      try{ initialData=await cloudFetchAll(rid); }catch(e){ online=false; }
+      if(isOwner){ try{ const {data:tc}=await sb.rpc("my_team_code"); teamCode=tc||null; }catch(e){} }
+      try{ sb.rpc("touch_membership"); }catch(e){}
+      if(cancel)return;
+
+      setCtx({
+        sb, restaurantId:rid, role:membership.role, isOwner,
+        email:(session.user&&session.user.email)||null, online,
+        initialData, teamCode,
+        push:(d)=>cloudUpsertAll(rid,d),
+        logout:()=>sb.auth.signOut(),
+        rotateCode:async()=>{ const {data,error}=await sb.rpc("rotate_join_code"); if(error)throw error; return data; },
+        listDevices:async()=>{ const {data,error}=await sb.rpc("list_devices"); if(error)throw error; return data||[]; },
+        revokeDevice:async(uid)=>{ const {error}=await sb.rpc("revoke_membership",{p_user:uid}); if(error)throw error; },
+        revokeAllDevices:async()=>{ const {data,error}=await sb.rpc("revoke_all_devices"); if(error)throw error; return data; },
+      });
+      setBooting(false);
+    })();
+    return ()=>{cancel=true;};
+  },[session,reloadN]);
+
+  if(booting) return h(CloudSplash,{msg:"Conectando…"});
+  // key App by restaurant so it fully re-seeds if the account/restaurant changes
+  if(ctx) return h(CloudCtx.Provider,{value:ctx}, h(App,{key:ctx.restaurantId}));
+  return h(AuthScreen,{reload});
+}
+
+// Entry point: cloud mode when supabase-js loaded, else pure-local (offline).
+function Root(){
+  return sb ? h(CloudRoot,null) : h(App,null);
+}
+
 if(typeof React === 'undefined' || typeof ReactDOM === 'undefined'){
   // React bundle didn't load — show Safari instructions
   var inst2=document.getElementById('safari-instructions');
@@ -25889,7 +26341,7 @@ if(typeof React === 'undefined' || typeof ReactDOM === 'undefined'){
   if(inst2)inst2.style.display='block';
 } else {
   try {
-    ReactDOM.createRoot(document.getElementById('root')).render(h(App,null));
+    ReactDOM.createRoot(document.getElementById('root')).render(h(Root,null));
     // Signal success to fallback handler (called after first paint via rAF)
     requestAnimationFrame(function(){ requestAnimationFrame(function(){
       if(window.__appReady) window.__appReady();
