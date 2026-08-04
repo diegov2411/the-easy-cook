@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.12.0";
+const APP_VERSION = "4.13.0";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.0", date:"Ago 2026", notes:"Avisos en vivo para el dueño. Cuando otro dispositivo del equipo hace un cambio importante, al dueño le aparece un aviso corto al instante: se cambió una receta o su precio, se borró un pedido o una receta, un plato se marcó como agotado (por el chef o automáticamente al llegar a su límite del día), o se conectó un equipo nuevo. Las ventas normales NO generan avisos (serían demasiados) — el 'Rendimiento de hoy' del Inicio ya se actualiza solo en tiempo real. Los avisos son solo para el dueño, nunca por sus propias acciones, y se pueden apagar en Configuración → Nube y equipo."},
   {v:"4.12.0", date:"Ago 2026", notes:"Dos mejoras grandes de la nube. (1) Seguridad al crear cuentas: ahora se necesita un 'código de activación' que solo nosotros entregamos, así nadie con el link puede crear una cuenta sin autorización. (2) Trabajo en equipo en vivo: varios dispositivos del mismo restaurante pueden agregar y editar al mismo tiempo, se ven los cambios de los demás en segundos, y el sistema combina los cambios en vez de que uno pise al otro — cada quien guarda solo la sección que tocó, y si dos tocan lo mismo a la vez, se juntan por registro (sin perder ventas ni duplicar). Sigue funcionando sin internet y sincroniza al reconectar."},
   {v:"4.11.0", date:"Ago 2026", notes:"¡La app ahora vive en la nube! El dueño entra con su correo y contraseña, y sus datos se guardan y sincronizan solos entre dispositivos (con respaldo local para seguir trabajando aunque se caiga el internet). Para el equipo: en vez de compartir tu correo, generas un 'código del equipo' desde Configuración → Nube y equipo; cada empleado lo ingresa una vez en su celular y listo — sin correos ni contraseñas. Adentro, siguen los PIN por persona de siempre. Si pierdes un equipo o cambia tu personal, puedes bloquear un dispositivo, desconectarlos todos o generar un código nuevo. También hay un botón para subir a la nube los datos que ya tenías en este dispositivo."},
   {v:"4.10.0", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
@@ -19508,7 +19509,7 @@ function Inventory({data,setData,toast,logActivity}){
 }
 
 // ─── RECIPES ──────────────────────────────────────────────────────────────────
-function Recipes({data,setData,toast}){
+function Recipes({data,setData,toast,notify=()=>{}}){
   const {recipes,products,bom,subBom=[],subRecipes=[]}=data;
   const recipeCategories=data.recipeCategories||["Fondos","Entradas","Pastas","Postres","Bebidas"];
   const subRecipeCategories=data.subRecipeCategories||["Salsas","Fondos y Caldos","Preparaciones","Masas","Otros"];
@@ -19535,7 +19536,7 @@ function Recipes({data,setData,toast}){
   const [limitInput,setLimitInput]=useState("");
   const setRecipeAvail=(id,patch)=>setData(d=>({...d,recipes:d.recipes.map(x=>x.id===id?{...x,...patch}:x)}));
   const openAvail=(r,e)=>{e.stopPropagation();setAvailModal(r.id);setLimitInput(r.limitDate===today()&&typeof r.dailyLimit==="number"?String(r.dailyLimit):"");};
-  const toggleSoldOut=(r)=>{setRecipeAvail(r.id,{soldOut:!r.soldOut});toast(!r.soldOut?"Plato marcado como agotado":"Plato disponible de nuevo",!r.soldOut?"info":"success");};
+  const toggleSoldOut=(r)=>{setRecipeAvail(r.id,{soldOut:!r.soldOut});toast(!r.soldOut?"Plato marcado como agotado":"Plato disponible de nuevo",!r.soldOut?"info":"success");if(!r.soldOut)notify("out_of_stock",`marcó "${r.name}" como agotado (86)`);};
   const saveLimit=(r)=>{const n=+limitInput;if(limitInput&&n>0){setRecipeAvail(r.id,{dailyLimit:n,limitDate:today()});toast("Límite de hoy: "+n+" porciones","success");}};
   const clearLimit=(r)=>{setRecipeAvail(r.id,{dailyLimit:null,limitDate:null});setLimitInput("");toast("Límite quitado","info");};
 
@@ -19580,11 +19581,14 @@ function Recipes({data,setData,toast}){
   const saveRecipe=()=>{
     if(!rForm.name||!rForm.price)return;
     if(editingRecipe){
+      const old=data.recipes.find(r=>r.id===editingRecipe);
       setData(d=>({...d,
         recipes:d.recipes.map(r=>r.id===editingRecipe?{...r,...rForm,price:+rForm.price,portions:+rForm.portions}:r),
         bom:[...d.bom.filter(b=>b.recipeId!==editingRecipe),...bomEdit.map(b=>({...b,id:b.id||"B"+uid(),recipeId:editingRecipe}))]
       }));
       setRModal(false);toast("Receta actualizada ✓","success");
+      if(old&&+old.price!==+rForm.price) notify("price_change",`cambió el precio de "${rForm.name}" a ${fmtCost(+rForm.price)}`);
+      else notify("recipe_change",`editó la receta "${rForm.name}"`);
     } else {
       const id="R"+uid();
       setData(d=>({...d,
@@ -19592,11 +19596,14 @@ function Recipes({data,setData,toast}){
         bom:[...d.bom,...bomEdit.map(b=>({...b,id:"B"+uid(),recipeId:id}))]
       }));
       setRModal(false);toast("Receta creada","success");
+      notify("recipe_change",`creó la receta "${rForm.name}"`);
     }
   };
   const deleteRecipe=(id)=>{
+    const r=data.recipes.find(x=>x.id===id);
     setData(d=>({...d,recipes:d.recipes.filter(r=>r.id!==id),bom:d.bom.filter(b=>b.recipeId!==id)}));
     setRView("list");setRDeleteConfirm(null);toast("Receta eliminada","info");
+    notify("delete",`eliminó la receta "${r?r.name:""}"`);
   };
   const addIngredient=()=>{
     const isSR=newIng.ingType==="subrecipe";
@@ -21161,7 +21168,7 @@ function dishAvailability(r, orders, orderLines){
   return {soldOut,limited,limit:limited?r.dailyLimit:null,sold,remaining,blocked};
 }
 
-function Sales({data,setData,toast,currentUser}){
+function Sales({data,setData,toast,currentUser,notify=()=>{}}){
   const {orders=[],orderLines=[],recipes,products,bom,subBom=[],subRecipes=[]}=data;
   const [view,setView]=useState("list");
   const [selectedOrder,setSelectedOrder]=useState(null);
@@ -21210,6 +21217,14 @@ function Sales({data,setData,toast,currentUser}){
   const [confirmNoStockModal,setConfirmNoStockModal]=useState(false);
   const doAddDishLine=(wasOverride=false)=>{
     const line={id:"OL"+uid(),orderId:selectedOrder.id,recipeId:addDishForm.recipeId,qty:+addDishForm.qty,note:addDishForm.note||""};
+    // Detect an AUTOMATIC sold-out: this line pushes the dish to its daily limit.
+    const rec=data.recipes.find(r=>r.id===addDishForm.recipeId);
+    let crossedLimit=false;
+    if(rec&&typeof rec.dailyLimit==="number"&&rec.limitDate===today()){
+      const before=dishAvailability(rec,data.orders,data.orderLines);
+      const after=dishAvailability(rec,data.orders,[...data.orderLines,line]);
+      crossedLimit=before.remaining>0&&after.remaining<=0;
+    }
     setData(d=>{
       let prods=d.products;
       if(wasOverride){
@@ -21225,6 +21240,7 @@ function Sales({data,setData,toast,currentUser}){
     });
     setAddDishModal(false);setConfirmNoStockModal(false);setAddDishForm({});
     toast(wasOverride?"Plato agregado · insumos marcados para recontar":"Plato agregado","success");
+    if(crossedLimit&&rec) notify("out_of_stock",`se agotó el límite de hoy de "${rec.name}"`);
   };
   const addDish=()=>{
     if(!addDishForm.recipeId||!addDishForm.qty)return;
@@ -21298,6 +21314,7 @@ function Sales({data,setData,toast,currentUser}){
     if(ord.status==="closed")reopenOrder(ord);
     setData(d=>({...d,orders:d.orders.filter(o=>o.id!==ord.id),orderLines:d.orderLines.filter(l=>l.orderId!==ord.id)}));
     setView("list");toast(`Pedido ${ord.code} eliminado`,"info");
+    notify("delete",`anuló el pedido ${ord.code}`);
   };
   const saveAdj=(ord)=>{
     const amount=+adjForm.amount||0;
@@ -25192,7 +25209,7 @@ function ActivityLog({data,setPage}){
 // Rendered inside Settings. Shows connection status, a one-time "upload my data
 // to the cloud" button, and — for the owner — the team code and device controls
 // (rotate code, block one device, disconnect all devices).
-function CloudSyncSection({data,toast}){
+function CloudSyncSection({data,setData,toast}){
   const cloud=useContext(CloudCtx);
   const [uploading,setUploading]=useState(false);
   const [code,setCode]=useState(cloud?cloud.teamCode:null);
@@ -25267,6 +25284,19 @@ function CloudSyncSection({data,toast}){
       fontFamily:"var(--sora)",cursor:uploading?"default":"pointer",border:"1px solid var(--border2)",
       background:"var(--surface2)",color:"var(--text)",marginBottom:cloud.isOwner?20:8
     }},uploading?"Subiendo…":"☁ Subir mis datos actuales a la nube"),
+
+    // Owner-only: change notifications toggle
+    cloud.isOwner&&h('div',{style:{borderTop:"1px solid var(--border)",paddingTop:16,marginBottom:2}},
+      h('div',{onClick:()=>setData(d=>({...d,settings:{...d.settings,notifyChanges:!(getSettings(d).notifyChanges!==false)}})),
+        style:{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",gap:12}},
+        h('div',{style:{flex:1}},
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:12,fontWeight:700,marginBottom:2}},"Avisarme de cambios del equipo"),
+          h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.4}},
+            "Un aviso corto cuando otro dispositivo cambia una receta o precio, borra algo, agota un plato, o se conecta un equipo nuevo.")),
+        (()=>{const on=getSettings(data).notifyChanges!==false;return h('div',{style:{width:44,height:24,borderRadius:12,flexShrink:0,background:on?"var(--accent)":"var(--border2)",position:"relative",transition:"background .2s"}},
+          h('div',{style:{position:"absolute",top:3,left:on?23:3,width:18,height:18,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 4px rgba(0,0,0,0.3)",transition:"left .2s"}}));})()
+      )
+    ),
 
     // Owner-only: team code + devices
     cloud.isOwner&&h(Fragment,null,
@@ -25672,7 +25702,7 @@ function SettingsPage({data,setData,toast}){
     ),
 
     // ── Nube y equipo (sincronización + dispositivos) ───────────────────────────
-    h(CloudSyncSection,{data,toast}),
+    h(CloudSyncSection,{data,setData,toast}),
 
     // ── Acerca de (info bubble) ─────────────────────────────────────────────────
     h('div',{style:{marginTop:24,borderTop:"1px solid var(--border)",paddingTop:20}},
@@ -26119,6 +26149,33 @@ function App(){
     setData(d=>({...d,activityLog:[entry,...(d.activityLog||[])]}));
   },[currentUser,setData]);
 
+  // Notify the OWNER of a notable change (fire-and-forget). Records an event
+  // row that the owner's device toasts live; the owner's own actions are skipped
+  // on their end, so this is safe to call from any device.
+  const notify=useCallback((kind,message)=>{
+    if(!cloud||!cloud.restaurantId||!cloud.logEvent) return;
+    const who=(currentUser&&currentUser.name)?currentUser.name.split(" ")[0]:"Alguien";
+    try{ Promise.resolve(cloud.logEvent(kind, who+": "+message, currentUser&&currentUser.name)).catch(()=>{}); }catch(e){}
+  },[cloud,currentUser]);
+
+  // Owner-only: live toast when another device makes a notable change.
+  useEffect(()=>{
+    if(!cloud||!cloud.isOwner||!cloud.restaurantId||!cloud.sb) return;
+    const EMOJI={out_of_stock:"🚫",recipe_change:"✏️",price_change:"💲",delete:"🗑",device_join:"📱"};
+    const TYPE={delete:"error",out_of_stock:"info",price_change:"info",recipe_change:"info",device_join:"info"};
+    const ch=cloud.sb.channel("events-"+cloud.restaurantId)
+      .on("postgres_changes",
+        {event:"INSERT",schema:"public",table:"events",filter:"restaurant_id=eq."+cloud.restaurantId},
+        (payload)=>{
+          const row=payload.new; if(!row) return;
+          if(cloud.userId&&row.actor_user===cloud.userId) return;        // skip my own actions
+          if(getSettings(dataRef.current||{}).notifyChanges===false) return; // owner turned it off
+          toast((EMOJI[row.kind]?EMOJI[row.kind]+" ":"")+row.message, TYPE[row.kind]||"info");
+        })
+      .subscribe();
+    return ()=>{ try{cloud.sb.removeChannel(ch);}catch(e){} };
+  },[cloud,toast]);
+
   const doLogout=()=>{
     setCurrentUser(null);
     setPage("dashboard");
@@ -26154,13 +26211,13 @@ function App(){
       ? h(Inventory,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editInventory",role}),
     recipes: can(role,"editRecipes")
-      ? h(Recipes,{data,setData,toast,logActivity})
+      ? h(Recipes,{data,setData,toast,logActivity,notify})
       : h(PermGate,{perm:"editRecipes",role}),
     menueng:h(MenuEngineering,{data,setData,toast}),
     abastecimiento: can(role,"editPurchases")
       ? h(Abastecimiento,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editPurchases",role}),
-    sales:h(Sales,{data,setData,toast}),
+    sales:h(Sales,{data,setData,toast,currentUser,notify}),
     payrecon:h(PaymentRecon,{data,setData,toast}),
     salesrecon: can(role,"editSales")
       ? h(SalesRecon,{data,setData,toast,logActivity,currentUser})
@@ -26438,8 +26495,11 @@ function CloudRoot(){
       setCtx({
         sb, restaurantId:rid, role:membership.role, isOwner,
         email:(session.user&&session.user.email)||null,
+        userId:(session.user&&session.user.id)||null,
         accessToken:(session&&session.access_token)||null, online,
         initialData, initialVersions, teamCode, saveCollection,
+        // Record a notable change (owner gets a live toast). Fire-and-forget.
+        logEvent:(kind,message,actorName)=>sb.rpc("log_event",{p_kind:kind,p_message:message,p_actor_name:actorName||null}),
         // One-time "upload my local data" — push every collection, merging on conflict.
         uploadAll:async(appData)=>{
           for(const name of COLLECTION_KEYS){
