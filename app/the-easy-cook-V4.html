@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.11.0";
+const APP_VERSION = "4.12.0";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.12.0", date:"Ago 2026", notes:"Dos mejoras grandes de la nube. (1) Seguridad al crear cuentas: ahora se necesita un 'código de activación' que solo nosotros entregamos, así nadie con el link puede crear una cuenta sin autorización. (2) Trabajo en equipo en vivo: varios dispositivos del mismo restaurante pueden agregar y editar al mismo tiempo, se ven los cambios de los demás en segundos, y el sistema combina los cambios en vez de que uno pise al otro — cada quien guarda solo la sección que tocó, y si dos tocan lo mismo a la vez, se juntan por registro (sin perder ventas ni duplicar). Sigue funcionando sin internet y sincroniza al reconectar."},
   {v:"4.11.0", date:"Ago 2026", notes:"¡La app ahora vive en la nube! El dueño entra con su correo y contraseña, y sus datos se guardan y sincronizan solos entre dispositivos (con respaldo local para seguir trabajando aunque se caiga el internet). Para el equipo: en vez de compartir tu correo, generas un 'código del equipo' desde Configuración → Nube y equipo; cada empleado lo ingresa una vez en su celular y listo — sin correos ni contraseñas. Adentro, siguen los PIN por persona de siempre. Si pierdes un equipo o cambia tu personal, puedes bloquear un dispositivo, desconectarlos todos o generar un código nuevo. También hay un botón para subir a la nube los datos que ya tenías en este dispositivo."},
   {v:"4.10.0", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
   {v:"4.9.2", date:"Jul 2026", notes:"Dos secciones más en el 'Informe completo': un gráfico de barras con la tendencia de ventas de los últimos 6 meses (con el promedio marcado y una tabla de apoyo con ventas netas, pedidos y costo % de cada mes), y 'Formas de pago' — cuánto entró por Yape, efectivo y tarjeta en el mes, con el % de cada uno y la diferencia contra lo registrado en la app. Ambas salen también en el PDF."},
@@ -17519,31 +17520,57 @@ const INIT = {
 
 // ─── CLOUD SYNC HELPERS ────────────────────────────────────────────────────────
 // The app's `data` object maps 1:1 to the `collections` table: one row per
-// top-level key { restaurant_id, name, data }. Load = fetch all rows and
-// reassemble; save = batch-upsert every key in one call.
+// top-level key { restaurant_id, name, data, updated_at }. Sync is PER-COLLECTION
+// so devices only overwrite the exact section they changed, with realtime + a
+// merge-on-conflict so several devices can edit at once without losing work.
 const COLLECTION_KEYS = Object.keys(INIT);
 
-// Fetch every collection for a restaurant → a { key: value } object, or null
-// if the restaurant has no rows yet (brand-new / never uploaded). Throws on a
-// network/RLS error so the caller can fall back to the local cache.
+// Fetch every collection for a restaurant. Returns { data:{key:value}|null,
+// versions:{key:updated_at} }. data is null when the restaurant has no rows yet
+// (brand-new / never uploaded). Throws on a network/RLS error so the caller can
+// fall back to the local cache.
 async function cloudFetchAll(rid){
-  const {data,error} = await sb.from("collections").select("name,data").eq("restaurant_id",rid);
+  const {data,error} = await sb.from("collections").select("name,data,updated_at").eq("restaurant_id",rid);
   if(error) throw error;
-  if(!data || !data.length) return null;
+  const versions={};
+  if(!data || !data.length) return {data:null, versions};
   const out={};
-  for(const row of data) out[row.name]=row.data;
-  return out;
+  for(const row of data){ out[row.name]=row.data; versions[row.name]=row.updated_at; }
+  return {data:out, versions};
 }
 
-// Upsert all collections for a restaurant from an app `data` object.
-async function cloudUpsertAll(rid,appData){
-  const rows=COLLECTION_KEYS.map(name=>({
-    restaurant_id:rid,
-    name,
-    data:(appData[name]!==undefined?appData[name]:INIT[name]),
-  }));
-  const {error}=await sb.from("collections").upsert(rows,{onConflict:"restaurant_id,name"});
-  if(error) throw error;
+// Merge two versions of ONE collection (local `a`, server `b`) when they
+// conflicted. Strategy by shape:
+//   • arrays of {id} objects → union by id, LOCAL wins on the same id
+//     (covers the common "two devices each added a different sale" case).
+//   • arrays of primitives (category lists) → union of distinct values.
+//   • objects (settings) → shallow merge, local wins per key.
+//   • anything else → local.
+// KNOWN TRADEOFF: union-by-id can resurrect a record deleted on one device while
+// another still had it. Deletes are rare in a kitchen; true delete-safety needs
+// per-record rows (a later step). See supabase/05_realtime_sync.sql.
+function mergeCollection(a,b){
+  if(Array.isArray(a)&&Array.isArray(b)){
+    const all=a.concat(b);
+    const allHaveId=all.length>0 && all.every(x=>x&&typeof x==="object"&&x.id!=null);
+    if(allHaveId){
+      const map=new Map();
+      for(const x of b) map.set(x.id,x);
+      for(const x of a) map.set(x.id,x);   // local overrides on same id
+      return Array.from(map.values());
+    }
+    const anyObject=all.some(x=>x&&typeof x==="object");
+    if(!anyObject){                         // primitive lists (categories)
+      const seen=new Set(b.map(String)); const out=b.slice();
+      for(const x of a){ if(!seen.has(String(x))){ seen.add(String(x)); out.push(x); } }
+      return out;
+    }
+    return a;                               // object list without ids → keep local
+  }
+  if(a&&b&&typeof a==="object"&&typeof b==="object"&&!Array.isArray(a)&&!Array.isArray(b)){
+    return {...b,...a};                      // settings-like object, local wins
+  }
+  return a!==undefined?a:b;
 }
 
 // Small trailing debounce so a burst of edits coalesces into one cloud write.
@@ -25184,7 +25211,7 @@ function CloudSyncSection({data,toast}){
 
   const upload=async()=>{
     setUploading(true);
-    try{ await cloud.push(data); toast("Datos subidos a la nube correctamente","success"); }
+    try{ await cloud.uploadAll(data); toast("Datos subidos a la nube correctamente","success"); }
     catch(e){ toast("No se pudo subir: "+(e.message||"error"),"error"); }
     setUploading(false);
   };
@@ -25986,22 +26013,103 @@ function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
 
-  // Debounced cloud push so a burst of edits collapses into one upsert.
-  // Background pushes swallow errors (offline / device just revoked) — the
-  // localStorage cache is always written first, so no edit is ever lost.
-  const cloudPush=useMemo(()=>
-    (cloud&&cloud.restaurantId&&cloud.push)
-      ? debounce((d)=>{Promise.resolve(cloud.push(d)).catch(()=>{});},1200)
-      : null,[cloud]);
+  // ── Cloud sync engine ────────────────────────────────────────────────────
+  // Per-collection, so a device only ever overwrites the exact section it
+  // changed. Realtime keeps every device current; on a genuine same-section
+  // clash the server returns a conflict and we merge (by record id) + retry, so
+  // several people can add/edit at once without losing each other's work.
+  const dataRef=useRef(data);                                   // latest data for async sync
+  const versionsRef=useRef((cloud&&cloud.initialVersions)||{}); // {name: server updated_at}
+  const dirtyRef=useRef(new Set());                             // collections with unsynced edits
+  const syncingRef=useRef(false);
+  const scheduleRef=useRef(null);                               // debounced flush
+  const retryRef=useRef(null);                                  // offline backoff timer
+
+  // Apply a value to one collection locally (state + ref + offline cache).
+  const applyLocal=useCallback((name,val)=>{
+    setDataRaw(prev=>{
+      const next={...prev,[name]:val};
+      dataRef.current=next;
+      try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
+      return next;
+    });
+  },[]);
+
+  const scheduleSync=useCallback(()=>{ if(scheduleRef.current)scheduleRef.current(); },[]);
+
+  const flushSync=useCallback(async()=>{
+    if(!cloud||!cloud.restaurantId||!cloud.saveCollection) return;
+    if(syncingRef.current) return;
+    syncingRef.current=true;
+    let networkError=false;
+    try{
+      while(dirtyRef.current.size>0){
+        const name=dirtyRef.current.values().next().value;
+        dirtyRef.current.delete(name);
+        try{
+          let res=await cloud.saveCollection(name, dataRef.current[name], versionsRef.current[name]);
+          let tries=0;
+          while(res&&res.status==="conflict"&&tries<6){
+            tries++;
+            applyLocal(name, mergeCollection(dataRef.current[name], res.data));
+            versionsRef.current[name]=res.version;
+            res=await cloud.saveCollection(name, dataRef.current[name], versionsRef.current[name]);
+          }
+          if(res&&res.status==="ok"){ versionsRef.current[name]=res.version; }
+          else if(res&&res.status==="conflict"){ versionsRef.current[name]=res.version; dirtyRef.current.add(name); }
+        }catch(e){
+          dirtyRef.current.add(name); networkError=true; break;   // offline/RLS → retry later
+        }
+      }
+    }finally{
+      syncingRef.current=false;
+      if(dirtyRef.current.size>0){
+        if(networkError){                                          // back off while offline
+          if(!retryRef.current) retryRef.current=setTimeout(()=>{ retryRef.current=null; flushSync(); },5000);
+        }else scheduleSync();
+      }
+    }
+  },[cloud,applyLocal,scheduleSync]);
+
+  useEffect(()=>{ scheduleRef.current=debounce(flushSync,1200); },[flushSync]);
 
   const setData=useCallback((updater)=>{
     setDataRaw(prev=>{
       const next=typeof updater==="function"?updater(prev):updater;
+      if(cloud&&cloud.restaurantId){                              // flag only the sections that changed
+        for(const k of COLLECTION_KEYS) if(next[k]!==prev[k]) dirtyRef.current.add(k);
+      }
+      dataRef.current=next;
       try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){} // instant offline cache
-      if(cloudPush) cloudPush(next);                                       // background cloud sync
+      if(cloud&&cloud.restaurantId) scheduleSync();
       return next;
     });
-  },[cloudPush]);
+  },[cloud,scheduleSync]);
+
+  // Realtime: fold in changes other devices make, live.
+  useEffect(()=>{
+    if(!cloud||!cloud.restaurantId||!cloud.sb) return;
+    try{ if(cloud.accessToken&&cloud.sb.realtime&&cloud.sb.realtime.setAuth) cloud.sb.realtime.setAuth(cloud.accessToken); }catch(e){}
+    const ch=cloud.sb.channel("collections-"+cloud.restaurantId)
+      .on("postgres_changes",
+        {event:"*",schema:"public",table:"collections",filter:"restaurant_id=eq."+cloud.restaurantId},
+        (payload)=>{
+          const row=payload.new; if(!row||!row.name) return;
+          const ver=row.updated_at, known=versionsRef.current[row.name];
+          if(known&&ver&&new Date(ver)<=new Date(known)) return;   // our own echo / already have it
+          setDataRaw(prev=>{
+            const val=dirtyRef.current.has(row.name)?mergeCollection(prev[row.name],row.data):row.data;
+            const next={...prev,[row.name]:val};
+            dataRef.current=next;
+            versionsRef.current[row.name]=ver;
+            try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
+            return next;
+          });
+          if(dirtyRef.current.has(row.name)) scheduleSync();       // push our merged version back
+        })
+      .subscribe();
+    return ()=>{ try{cloud.sb.removeChannel(ch);}catch(e){} };
+  },[cloud,scheduleSync]);
 
   // Activity logger
   const logActivity=useCallback((action,target,module)=>{
@@ -26144,7 +26252,7 @@ function CloudSplash({msg}){
 // Login (owner) / Crear cuenta (owner) / Unir dispositivo (empleado, código).
 function AuthScreen({reload}){
   const [mode,setMode]=useState("login");
-  const [form,setForm]=useState({email:"",password:"",bizName:"",ruc:"",code:"",label:""});
+  const [form,setForm]=useState({email:"",password:"",bizName:"",ruc:"",code:"",label:"",actCode:""});
   const [error,setError]=useState("");
   const [note,setNote]=useState("");
   const [busy,setBusy]=useState(false);
@@ -26160,6 +26268,7 @@ function AuthScreen({reload}){
   };
 
   const doSignup=async()=>{
+    if(!form.actCode.trim()){setError("Ingresa el código de activación que te dimos");return;}
     if(!form.email.trim()||!form.password){setError("Ingresa correo y contraseña");return;}
     if(form.password.length<6){setError("La contraseña debe tener al menos 6 caracteres");return;}
     if(!form.bizName.trim()){setError("Ingresa el nombre del restaurante");return;}
@@ -26171,8 +26280,14 @@ function AuthScreen({reload}){
       setBusy(false);setMode("login");return;
     }
     const {error:rpcErr}=await sb.rpc("create_my_restaurant",
-      {p_name:form.bizName.trim(),p_ruc:form.ruc.trim()||null});
-    if(rpcErr){setError("Cuenta creada, pero no se pudo registrar el restaurante: "+rpcErr.message);setBusy(false);return;}
+      {p_name:form.bizName.trim(),p_ruc:form.ruc.trim()||null,p_code:form.actCode.trim()});
+    if(rpcErr){
+      const m=(rpcErr.message||"").toLowerCase();
+      setError(m.includes("activaci")||m.includes("usado")
+        ? "Código de activación inválido o ya usado. Contáctanos."
+        : "Cuenta creada, pero no se pudo registrar el restaurante: "+rpcErr.message);
+      setBusy(false);return;
+    }
     reload(); // membership now exists → advance to the app
   };
 
@@ -26231,6 +26346,12 @@ function AuthScreen({reload}){
       ),
 
       mode==="signup"&&h(Fragment,null,
+        h(FormRow,{label:"Código de activación"},
+          h('input',{value:form.actCode,autoCapitalize:"characters",
+            onChange:e=>set("actCode",e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6)),
+            placeholder:"el código que te dimos",style:{letterSpacing:"0.15em",fontWeight:700,textAlign:"center"}})),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:-6,marginBottom:12,lineHeight:1.4}},
+          "Solo con un código válido puedes crear una cuenta. Si no tienes uno, contáctanos."),
         h(FormRow,{label:"Correo"},
           h('input',{type:"email",value:form.email,autoComplete:"email",
             onChange:e=>set("email",e.target.value),placeholder:"tucorreo@ejemplo.com"})),
@@ -26300,17 +26421,37 @@ function CloudRoot(){
       if(!membership){ setCtx(null); setBooting(false); return; }
 
       const rid=membership.restaurant_id, isOwner=membership.role==="owner";
-      let initialData=null, teamCode=null;
-      try{ initialData=await cloudFetchAll(rid); }catch(e){ online=false; }
+      let initialData=null, initialVersions={}, teamCode=null;
+      try{ const fetched=await cloudFetchAll(rid); initialData=fetched.data; initialVersions=fetched.versions; }catch(e){ online=false; }
       if(isOwner){ try{ const {data:tc}=await sb.rpc("my_team_code"); teamCode=tc||null; }catch(e){} }
       try{ sb.rpc("touch_membership"); }catch(e){}
       if(cancel)return;
 
+      // Write ONE collection with optimistic concurrency. Returns
+      // {status:'ok'|'conflict', version, data?} — the client merges on conflict.
+      const saveCollection=async(name,payload,base)=>{
+        const {data,error}=await sb.rpc("save_collection",{p_name:name,p_data:(payload===undefined?null:payload),p_base:base||null});
+        if(error)throw error;
+        return data;
+      };
+
       setCtx({
         sb, restaurantId:rid, role:membership.role, isOwner,
-        email:(session.user&&session.user.email)||null, online,
-        initialData, teamCode,
-        push:(d)=>cloudUpsertAll(rid,d),
+        email:(session.user&&session.user.email)||null,
+        accessToken:(session&&session.access_token)||null, online,
+        initialData, initialVersions, teamCode, saveCollection,
+        // One-time "upload my local data" — push every collection, merging on conflict.
+        uploadAll:async(appData)=>{
+          for(const name of COLLECTION_KEYS){
+            let val=appData[name]!==undefined?appData[name]:INIT[name];
+            let base=initialVersions[name];
+            for(let i=0;i<6;i++){
+              const res=await saveCollection(name,val,base);
+              if(res&&res.status==="conflict"){ val=mergeCollection(val,res.data); base=res.version; continue; }
+              break;
+            }
+          }
+        },
         logout:()=>sb.auth.signOut(),
         rotateCode:async()=>{ const {data,error}=await sb.rpc("rotate_join_code"); if(error)throw error; return data; },
         listDevices:async()=>{ const {data,error}=await sb.rpc("list_devices"); if(error)throw error; return data||[]; },
