@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.0";
+const APP_VERSION = "4.13.1";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.1", date:"Ago 2026", notes:"Aviso para el cajero cuando un plato se agota. Si otro dispositivo marca un plato como agotado (o se llega a su límite del día al vender), al cajero le aparece un aviso al instante para que deje de venderlo. Es solo para el perfil de Cajero y solo para 'agotado' — el resto de avisos siguen siendo solo para el dueño."},
   {v:"4.13.0", date:"Ago 2026", notes:"Avisos en vivo para el dueño. Cuando otro dispositivo del equipo hace un cambio importante, al dueño le aparece un aviso corto al instante: se cambió una receta o su precio, se borró un pedido o una receta, un plato se marcó como agotado (por el chef o automáticamente al llegar a su límite del día), o se conectó un equipo nuevo. Las ventas normales NO generan avisos (serían demasiados) — el 'Rendimiento de hoy' del Inicio ya se actualiza solo en tiempo real. Los avisos son solo para el dueño, nunca por sus propias acciones, y se pueden apagar en Configuración → Nube y equipo."},
   {v:"4.12.0", date:"Ago 2026", notes:"Dos mejoras grandes de la nube. (1) Seguridad al crear cuentas: ahora se necesita un 'código de activación' que solo nosotros entregamos, así nadie con el link puede crear una cuenta sin autorización. (2) Trabajo en equipo en vivo: varios dispositivos del mismo restaurante pueden agregar y editar al mismo tiempo, se ven los cambios de los demás en segundos, y el sistema combina los cambios en vez de que uno pise al otro — cada quien guarda solo la sección que tocó, y si dos tocan lo mismo a la vez, se juntan por registro (sin perder ventas ni duplicar). Sigue funcionando sin internet y sincroniza al reconectar."},
   {v:"4.11.0", date:"Ago 2026", notes:"¡La app ahora vive en la nube! El dueño entra con su correo y contraseña, y sus datos se guardan y sincronizan solos entre dispositivos (con respaldo local para seguir trabajando aunque se caiga el internet). Para el equipo: en vez de compartir tu correo, generas un 'código del equipo' desde Configuración → Nube y equipo; cada empleado lo ingresa una vez en su celular y listo — sin correos ni contraseñas. Adentro, siguen los PIN por persona de siempre. Si pierdes un equipo o cambia tu personal, puedes bloquear un dispositivo, desconectarlos todos o generar un código nuevo. También hay un botón para subir a la nube los datos que ya tenías en este dispositivo."},
@@ -26158,19 +26159,33 @@ function App(){
     try{ Promise.resolve(cloud.logEvent(kind, who+": "+message, currentUser&&currentUser.name)).catch(()=>{}); }catch(e){}
   },[cloud,currentUser]);
 
-  // Owner-only: live toast when another device makes a notable change.
+  // Latest PIN user, read inside the realtime handler without re-subscribing.
+  const currentUserRef=useRef(currentUser);
+  useEffect(()=>{ currentUserRef.current=currentUser; },[currentUser]);
+
+  // Live change alerts:
+  //  • OWNER device → every notable change (toggleable in Settings).
+  //  • CASHIER (staff device) → out-of-stock only, so they stop selling a dish
+  //    the moment the kitchen/limit marks it unavailable. (RLS only lets staff
+  //    devices receive out_of_stock events; see 08_cashier_alerts.sql.)
   useEffect(()=>{
-    if(!cloud||!cloud.isOwner||!cloud.restaurantId||!cloud.sb) return;
+    if(!cloud||!cloud.restaurantId||!cloud.sb) return;
     const EMOJI={out_of_stock:"🚫",recipe_change:"✏️",price_change:"💲",delete:"🗑",device_join:"📱"};
     const TYPE={delete:"error",out_of_stock:"info",price_change:"info",recipe_change:"info",device_join:"info"};
+    try{ if(cloud.accessToken&&cloud.sb.realtime&&cloud.sb.realtime.setAuth) cloud.sb.realtime.setAuth(cloud.accessToken); }catch(e){}
     const ch=cloud.sb.channel("events-"+cloud.restaurantId)
       .on("postgres_changes",
         {event:"INSERT",schema:"public",table:"events",filter:"restaurant_id=eq."+cloud.restaurantId},
         (payload)=>{
           const row=payload.new; if(!row) return;
-          if(cloud.userId&&row.actor_user===cloud.userId) return;        // skip my own actions
-          if(getSettings(dataRef.current||{}).notifyChanges===false) return; // owner turned it off
-          toast((EMOJI[row.kind]?EMOJI[row.kind]+" ":"")+row.message, TYPE[row.kind]||"info");
+          if(cloud.userId&&row.actor_user===cloud.userId) return;         // skip this device's own actions
+          if(cloud.isOwner){
+            if(getSettings(dataRef.current||{}).notifyChanges===false) return; // owner turned it off
+            toast((EMOJI[row.kind]?EMOJI[row.kind]+" ":"")+row.message, TYPE[row.kind]||"info");
+          }else if(row.kind==="out_of_stock"){
+            const cu=currentUserRef.current;                              // cashier-only, on a staff device
+            if(cu&&cu.role==="cashier") toast("🚫 "+row.message, "error");
+          }
         })
       .subscribe();
     return ()=>{ try{cloud.sb.removeChannel(ch);}catch(e){} };
