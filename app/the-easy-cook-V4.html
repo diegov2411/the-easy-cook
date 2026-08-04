@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.1";
+const APP_VERSION = "4.13.2";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.2", date:"Ago 2026", notes:"Mejoras internas de la cuenta en la nube: la app recuerda tu restaurante para abrir más rápido y seguir funcionando sin internet, y se añadió el manejo de cuentas pausadas (si una cuenta se desactiva, muestra un aviso claro y tus datos quedan guardados)."},
   {v:"4.13.1", date:"Ago 2026", notes:"Aviso para el cajero cuando un plato se agota. Si otro dispositivo marca un plato como agotado (o se llega a su límite del día al vender), al cajero le aparece un aviso al instante para que deje de venderlo. Es solo para el perfil de Cajero y solo para 'agotado' — el resto de avisos siguen siendo solo para el dueño."},
   {v:"4.13.0", date:"Ago 2026", notes:"Avisos en vivo para el dueño. Cuando otro dispositivo del equipo hace un cambio importante, al dueño le aparece un aviso corto al instante: se cambió una receta o su precio, se borró un pedido o una receta, un plato se marcó como agotado (por el chef o automáticamente al llegar a su límite del día), o se conectó un equipo nuevo. Las ventas normales NO generan avisos (serían demasiados) — el 'Rendimiento de hoy' del Inicio ya se actualiza solo en tiempo real. Los avisos son solo para el dueño, nunca por sus propias acciones, y se pueden apagar en Configuración → Nube y equipo."},
   {v:"4.12.0", date:"Ago 2026", notes:"Dos mejoras grandes de la nube. (1) Seguridad al crear cuentas: ahora se necesita un 'código de activación' que solo nosotros entregamos, así nadie con el link puede crear una cuenta sin autorización. (2) Trabajo en equipo en vivo: varios dispositivos del mismo restaurante pueden agregar y editar al mismo tiempo, se ven los cambios de los demás en segundos, y el sistema combina los cambios en vez de que uno pise al otro — cada quien guarda solo la sección que tocó, y si dos tocan lo mismo a la vez, se juntan por registro (sin perder ventas ni duplicar). Sigue funcionando sin internet y sincroniza al reconectar."},
@@ -26321,6 +26322,25 @@ function CloudSplash({msg}){
   );
 }
 
+// Shown when the restaurant has been deactivated (e.g. subscription lapsed).
+function DeactivatedScreen({onLogout}){
+  return h('div',{style:{
+    position:"fixed",inset:0,background:"var(--bg)",zIndex:200,
+    display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"
+  }},
+    h('div',{className:"pin-login-inner",style:{width:"100%",maxWidth:380,textAlign:"center"}},
+      h('div',{style:{width:52,height:52,borderRadius:16,background:"rgba(234,179,8,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 14px"}},"⏸"),
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:19,fontWeight:700,marginBottom:8}},"Cuenta desactivada"),
+      h('div',{style:{fontSize:13,color:"var(--text2)",lineHeight:1.6,marginBottom:22}},
+        "El acceso a esta cuenta está pausado. Tus datos están guardados y a salvo. Contáctanos para reactivarla."),
+      h('button',{onClick:onLogout,style:{
+        width:"100%",padding:"12px",borderRadius:"var(--radius)",fontSize:13,fontWeight:600,
+        cursor:"pointer",border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text2)"
+      }},"Cerrar sesión")
+    )
+  );
+}
+
 // Login (owner) / Crear cuenta (owner) / Unir dispositivo (empleado, código).
 function AuthScreen({reload}){
   const [mode,setMode]=useState("login");
@@ -26482,15 +26502,21 @@ function CloudRoot(){
     let cancel=false;
     (async()=>{
       if(!session){ if(!cancel){setCtx(null);setBooting(false);} return; }
+      const MKEY="theeasycook_membership";
       let membership=null, online=true;
       try{
-        const {data,error}=await sb.from("memberships")
-          .select("restaurant_id,role,active").eq("active",true).limit(1);
+        const {data,error}=await sb.rpc("my_membership");   // restaurant_id, role, restaurant_active, name
         if(error)throw error;
         membership=(data&&data[0])||null;
-      }catch(e){ online=false; }
+        try{ membership?localStorage.setItem(MKEY,JSON.stringify(membership)):localStorage.removeItem(MKEY); }catch(e){}
+      }catch(e){
+        online=false;                                       // offline → fall back to the last known membership
+        try{ const c=localStorage.getItem(MKEY); if(c) membership=JSON.parse(c); }catch(e2){}
+      }
       if(cancel)return;
       if(!membership){ setCtx(null); setBooting(false); return; }
+      // Deactivated (e.g. non-paying) client → show a message instead of the app.
+      if(membership.restaurant_active===false){ setCtx({deactivated:true}); setBooting(false); return; }
 
       const rid=membership.restaurant_id, isOwner=membership.role==="owner";
       let initialData=null, initialVersions={}, teamCode=null;
@@ -26539,6 +26565,7 @@ function CloudRoot(){
   },[session,reloadN]);
 
   if(booting) return h(CloudSplash,{msg:"Conectando…"});
+  if(ctx&&ctx.deactivated) return h(DeactivatedScreen,{onLogout:()=>sb.auth.signOut()});
   // key App by restaurant so it fully re-seeds if the account/restaurant changes
   if(ctx) return h(CloudCtx.Provider,{value:ctx}, h(App,{key:ctx.restaurantId}));
   return h(AuthScreen,{reload});
