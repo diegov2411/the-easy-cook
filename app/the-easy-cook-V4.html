@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.3";
+const APP_VERSION = "4.13.4";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.4", date:"Ago 2026", notes:"Recuperación de contraseña. Si el dueño olvida su contraseña, ahora puede tocar '¿Olvidaste tu contraseña?' en el inicio de sesión, recibir un enlace por correo y elegir una nueva. (Los perfiles del equipo siguen entrando con su PIN de siempre)."},
   {v:"4.13.3", date:"Ago 2026", notes:"Panel de administración del proveedor (interno): permite generar códigos de activación y activar/pausar cuentas de clientes, sin ningún acceso a los datos de los restaurantes. No afecta el uso normal de la app."},
   {v:"4.13.2", date:"Ago 2026", notes:"Mejoras internas de la cuenta en la nube: la app recuerda tu restaurante para abrir más rápido y seguir funcionando sin internet, y se añadió el manejo de cuentas pausadas (si una cuenta se desactiva, muestra un aviso claro y tus datos quedan guardados)."},
   {v:"4.13.1", date:"Ago 2026", notes:"Aviso para el cajero cuando un plato se agota. Si otro dispositivo marca un plato como agotado (o se llega a su límite del día al vender), al cajero le aparece un aviso al instante para que deje de venderlo. Es solo para el perfil de Cajero y solo para 'agotado' — el resto de avisos siguen siendo solo para el dueño."},
@@ -26342,6 +26343,35 @@ function DeactivatedScreen({onLogout}){
   );
 }
 
+// Shown after the user clicks a password-reset link (Supabase fires a
+// PASSWORD_RECOVERY session). They set a new password, then continue logged in.
+function ResetPasswordScreen({sb,onDone}){
+  const [pw,setPw]=useState(""); const [pw2,setPw2]=useState("");
+  const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
+  const save=async()=>{
+    if(pw.length<6){setError("La contraseña debe tener al menos 6 caracteres");return;}
+    if(pw!==pw2){setError("Las contraseñas no coinciden");return;}
+    setBusy(true);setError("");
+    const {error}=await sb.auth.updateUser({password:pw});
+    if(error){setError(traducirAuthError(error.message));setBusy(false);return;}
+    onDone(); // recovery session is now a normal session → continue into the app
+  };
+  return h('div',{style:{position:"fixed",inset:0,background:"var(--bg)",zIndex:200,display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 20px"}},
+    h('div',{className:"pin-login-inner",style:{width:"100%",maxWidth:380}},
+      h('div',{style:{textAlign:"center",marginBottom:20}},
+        h('div',{style:{width:52,height:52,borderRadius:16,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 12px"}},"🔑"),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:19,fontWeight:700}},"Nueva contraseña"),
+        h('div',{style:{fontSize:13,color:"var(--text2)",marginTop:6}},"Elige una contraseña nueva para tu cuenta.")),
+      h(FormRow,{label:"Nueva contraseña (mín. 6)"},
+        h('input',{type:"password",value:pw,autoComplete:"new-password",onChange:e=>{setPw(e.target.value);setError("");},placeholder:"••••••••"})),
+      h(FormRow,{label:"Confirma la contraseña"},
+        h('input',{type:"password",value:pw2,autoComplete:"new-password",onChange:e=>{setPw2(e.target.value);setError("");},placeholder:"••••••••"})),
+      error&&h('div',{style:{fontSize:12,color:"var(--red)",margin:"4px 0 12px",fontWeight:500,textAlign:"center"}},error),
+      h(Btn,{onClick:save,size:"lg",disabled:busy,style:{width:"100%",marginTop:6}},busy?"Guardando…":"Guardar contraseña")
+    )
+  );
+}
+
 // ─── VENDOR ADMIN PANEL ─────────────────────────────────────────────────────
 // Shown only to a superadmin login (owns no restaurant). Manages clients —
 // generate activation codes, list restaurants, activate/deactivate — WITHOUT
@@ -26473,6 +26503,15 @@ function AuthScreen({reload}){
     // Session change → Root re-resolves membership → App. Keep the spinner up.
   };
 
+  const doForgot=async()=>{
+    if(!form.email.trim()){setError("Ingresa tu correo");return;}
+    setBusy(true);setError("");setNote("");
+    const {error}=await sb.auth.resetPasswordForEmail(form.email.trim(),{redirectTo:window.location.href.split("#")[0]});
+    setBusy(false);
+    if(error){setError(traducirAuthError(error.message));return;}
+    setNote("Si ese correo tiene una cuenta, te enviamos un enlace para restablecer la contraseña. Revisa tu bandeja (y spam).");
+  };
+
   const doSignup=async()=>{
     if(!form.actCode.trim()){setError("Ingresa el código de activación que te dimos");return;}
     if(!form.email.trim()||!form.password){setError("Ingresa correo y contraseña");return;}
@@ -26513,7 +26552,7 @@ function AuthScreen({reload}){
     reload(); // membership now exists → advance to the app
   };
 
-  const submit=()=>{ if(mode==="login")doLogin(); else if(mode==="signup")doSignup(); else doJoin(); };
+  const submit=()=>{ if(mode==="login")doLogin(); else if(mode==="signup")doSignup(); else if(mode==="forgot")doForgot(); else doJoin(); };
 
   const tab=(id,label)=>h('button',{onClick:()=>switchMode(id),style:{
     flex:1,padding:"9px 4px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:"pointer",
@@ -26533,10 +26572,12 @@ function AuthScreen({reload}){
         h('div',{style:{fontSize:13,color:"var(--text2)",marginTop:6,lineHeight:1.5}},
           mode==="join"
             ?"Ingresa el código que te dio el dueño para usar la app en este equipo."
-            :"Entra a la cuenta de tu restaurante o crea una nueva.")
+            :mode==="forgot"
+              ?"Te enviaremos un enlace a tu correo para restablecer tu contraseña."
+              :"Entra a la cuenta de tu restaurante o crea una nueva.")
       ),
 
-      h('div',{style:{display:"flex",gap:6,marginBottom:18,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
+      mode!=="forgot"&&h('div',{style:{display:"flex",gap:6,marginBottom:18,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
         tab("login","Iniciar sesión"),
         tab("signup","Crear cuenta"),
         tab("join","Unir equipo")
@@ -26548,7 +26589,16 @@ function AuthScreen({reload}){
             onChange:e=>set("email",e.target.value),placeholder:"tucorreo@ejemplo.com"})),
         h(FormRow,{label:"Contraseña"},
           h('input',{type:"password",value:form.password,autoComplete:"current-password",
-            onChange:e=>set("password",e.target.value),placeholder:"••••••••"}))
+            onChange:e=>set("password",e.target.value),placeholder:"••••••••"})),
+        h('div',{style:{textAlign:"right",marginTop:-4,marginBottom:2}},
+          h('button',{onClick:()=>switchMode("forgot"),style:{background:"none",border:"none",color:"var(--accent)",fontSize:12,fontWeight:600,cursor:"pointer",padding:0}},"¿Olvidaste tu contraseña?"))
+      ),
+
+      mode==="forgot"&&h(Fragment,null,
+        h(FormRow,{label:"Correo"},
+          h('input',{type:"email",value:form.email,autoComplete:"email",
+            onChange:e=>set("email",e.target.value),placeholder:"tucorreo@ejemplo.com"})),
+        h('button',{onClick:()=>switchMode("login"),style:{background:"none",border:"none",color:"var(--text3)",fontSize:12,fontWeight:600,cursor:"pointer",padding:"2px 0"}},"← Volver a iniciar sesión")
       ),
 
       mode==="signup"&&h(Fragment,null,
@@ -26586,7 +26636,7 @@ function AuthScreen({reload}){
       note&&h('div',{style:{fontSize:12,color:"var(--green)",margin:"4px 0 12px",fontWeight:500,textAlign:"center",lineHeight:1.5}},note),
 
       h(Btn,{onClick:submit,size:"lg",disabled:busy,style:{width:"100%",marginTop:6}},
-        busy?"Un momento…":(mode==="login"?"Iniciar sesión":mode==="signup"?"Crear cuenta y restaurante":"Unir este equipo"))
+        busy?"Un momento…":(mode==="login"?"Iniciar sesión":mode==="signup"?"Crear cuenta y restaurante":mode==="forgot"?"Enviar enlace":"Unir este equipo"))
     )
   );
 }
@@ -26597,6 +26647,7 @@ function CloudRoot(){
   const [booting,setBooting]=useState(true);
   const [session,setSession]=useState(null);
   const [ctx,setCtx]=useState(null);      // resolved CloudCtx value, or null
+  const [recovery,setRecovery]=useState(false); // clicked a password-reset link
   const [reloadN,setReloadN]=useState(0);
   const reload=useCallback(()=>setReloadN(n=>n+1),[]);
 
@@ -26605,7 +26656,7 @@ function CloudRoot(){
     let sub=null;
     sb.auth.getSession().then(({data})=>setSession(data.session||null)).catch(()=>setSession(null));
     try{
-      const r=sb.auth.onAuthStateChange((_e,s)=>setSession(s||null));
+      const r=sb.auth.onAuthStateChange((evt,s)=>{ if(evt==="PASSWORD_RECOVERY")setRecovery(true); setSession(s||null); });
       sub=r.data.subscription;
     }catch(e){}
     return ()=>{ try{sub&&sub.unsubscribe();}catch(e){} };
@@ -26684,6 +26735,7 @@ function CloudRoot(){
     return ()=>{cancel=true;};
   },[session,reloadN]);
 
+  if(recovery) return h(ResetPasswordScreen,{sb,onDone:()=>{setRecovery(false);reload();}});
   if(booting) return h(CloudSplash,{msg:"Conectando…"});
   if(ctx&&ctx.admin) return h(AdminPanel,{sb,onLogout:()=>sb.auth.signOut()});
   if(ctx&&ctx.deactivated) return h(DeactivatedScreen,{onLogout:()=>sb.auth.signOut()});
