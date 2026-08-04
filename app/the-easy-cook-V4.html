@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.2";
+const APP_VERSION = "4.13.3";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.3", date:"Ago 2026", notes:"Panel de administración del proveedor (interno): permite generar códigos de activación y activar/pausar cuentas de clientes, sin ningún acceso a los datos de los restaurantes. No afecta el uso normal de la app."},
   {v:"4.13.2", date:"Ago 2026", notes:"Mejoras internas de la cuenta en la nube: la app recuerda tu restaurante para abrir más rápido y seguir funcionando sin internet, y se añadió el manejo de cuentas pausadas (si una cuenta se desactiva, muestra un aviso claro y tus datos quedan guardados)."},
   {v:"4.13.1", date:"Ago 2026", notes:"Aviso para el cajero cuando un plato se agota. Si otro dispositivo marca un plato como agotado (o se llega a su límite del día al vender), al cajero le aparece un aviso al instante para que deje de venderlo. Es solo para el perfil de Cajero y solo para 'agotado' — el resto de avisos siguen siendo solo para el dueño."},
   {v:"4.13.0", date:"Ago 2026", notes:"Avisos en vivo para el dueño. Cuando otro dispositivo del equipo hace un cambio importante, al dueño le aparece un aviso corto al instante: se cambió una receta o su precio, se borró un pedido o una receta, un plato se marcó como agotado (por el chef o automáticamente al llegar a su límite del día), o se conectó un equipo nuevo. Las ventas normales NO generan avisos (serían demasiados) — el 'Rendimiento de hoy' del Inicio ya se actualiza solo en tiempo real. Los avisos son solo para el dueño, nunca por sus propias acciones, y se pueden apagar en Configuración → Nube y equipo."},
@@ -26341,6 +26342,119 @@ function DeactivatedScreen({onLogout}){
   );
 }
 
+// ─── VENDOR ADMIN PANEL ─────────────────────────────────────────────────────
+// Shown only to a superadmin login (owns no restaurant). Manages clients —
+// generate activation codes, list restaurants, activate/deactivate — WITHOUT
+// any access to a client's data (enforced by RLS + metadata-only admin RPCs).
+function AdminPanel({sb,onLogout}){
+  const [tab,setTab]=useState("clients");
+  const [restaurants,setRestaurants]=useState(null);
+  const [codes,setCodes]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [label,setLabel]=useState("");
+  const [newCode,setNewCode]=useState(null);
+
+  const load=useCallback(async()=>{
+    try{ const {data}=await sb.rpc("admin_list_restaurants"); setRestaurants(data||[]); }catch(e){ setRestaurants([]); }
+    try{ const {data}=await sb.rpc("admin_list_codes"); setCodes(data||[]); }catch(e){ setCodes([]); }
+  },[sb]);
+  useEffect(()=>{ load(); },[load]);
+
+  const toggle=async(r)=>{ setBusy(true);
+    try{ await sb.rpc("admin_set_active",{p_id:r.id,p_active:!r.active}); await load(); }catch(e){}
+    setBusy(false);
+  };
+  const genCode=async()=>{ setBusy(true); setNewCode(null);
+    try{ const {data,error}=await sb.rpc("admin_gen_code",{p_label:label.trim()||null}); if(!error){ setNewCode(data); setLabel(""); await load(); } }catch(e){}
+    setBusy(false);
+  };
+
+  const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
+    flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:"pointer",
+    fontFamily:"var(--sora)",border:"none",background:tab===id?"var(--accent)":"var(--surface2)",
+    color:tab===id?"#fff":"var(--text2)"
+  }},txt);
+
+  const activeCount=(restaurants||[]).filter(r=>r.active).length;
+
+  return h('div',{style:{position:"fixed",inset:0,background:"var(--bg)",zIndex:200,overflowY:"auto"}},
+    h('div',{style:{maxWidth:640,margin:"0 auto",padding:"20px"}},
+      // Header
+      h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}},
+        h('div',{style:{display:"flex",alignItems:"center",gap:10}},
+          h('div',{style:{width:32,height:32,borderRadius:9,background:"var(--accent)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}},"🛠"),
+          h('div',null,
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:17,fontWeight:700}},"Admin"),
+            h('div',{style:{fontSize:11,color:"var(--text3)"}},"The Easy Cook · panel del proveedor"))
+        ),
+        h('button',{onClick:onLogout,style:{padding:"7px 12px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,cursor:"pointer",border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text3)"}},"Salir")
+      ),
+      h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.5,marginBottom:16,padding:"8px 10px",background:"var(--surface)",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)"}},
+        "🔒 Este panel gestiona cuentas — no tiene acceso a los datos de los restaurantes (recetas, ventas, etc.)."),
+
+      h('div',{style:{display:"flex",gap:6,marginBottom:16,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
+        tabBtn("clients","Restaurantes"+(restaurants?" ("+restaurants.length+")":"")),
+        tabBtn("codes","Códigos")
+      ),
+
+      tab==="clients"&&h('div',null,
+        restaurants===null
+          ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px 0"}},"Cargando…")
+          : restaurants.length===0
+            ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px",textAlign:"center",border:"1px solid var(--border)",borderRadius:"var(--radius)"}},"Todavía no hay restaurantes.")
+            : h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
+                h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:2}},activeCount+" activo(s) de "+restaurants.length),
+                restaurants.map(r=>h('div',{key:r.id,style:{
+                  display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:"var(--radius)",
+                  border:"1px solid var(--border)",background:"var(--surface)"
+                }},
+                  h('div',{style:{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.active?"var(--green)":"var(--text3)"}}),
+                  h('div',{style:{flex:1,minWidth:0}},
+                    h('div',{style:{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.name||"(sin nombre)"),
+                    h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},
+                      (r.ruc?"RUC "+r.ruc+" · ":"")+"desde "+fmtDate(r.created_at)+" · "+r.active_devices+" equipo(s)")
+                  ),
+                  h('button',{onClick:()=>toggle(r),disabled:busy,style:{
+                    padding:"6px 12px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:700,cursor:busy?"default":"pointer",
+                    border:"1px solid "+(r.active?"var(--red)":"var(--green)"),
+                    background:r.active?"rgba(239,68,68,0.1)":"rgba(34,197,94,0.12)",
+                    color:r.active?"var(--red)":"var(--green)"
+                  }},r.active?"Pausar":"Activar")
+                ))
+              )
+      ),
+
+      tab==="codes"&&h('div',null,
+        h('div',{style:{padding:"14px",borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)",marginBottom:16}},
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:8}},"Generar código de activación"),
+          h('div',{style:{display:"flex",gap:8}},
+            h('input',{value:label,onChange:e=>setLabel(e.target.value),placeholder:"Para quién (ej. Cliente: Andiamo)",style:{flex:1,fontSize:13}}),
+            h('button',{onClick:genCode,disabled:busy,style:{padding:"0 16px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:busy?"default":"pointer",border:"none",background:"var(--accent)",color:"#fff",whiteSpace:"nowrap"}},busy?"…":"Generar")
+          ),
+          newCode&&h('div',{style:{marginTop:12,display:"flex",alignItems:"center",gap:10}},
+            h('div',{style:{flex:1,fontFamily:"var(--sora)",fontSize:22,fontWeight:800,letterSpacing:"0.18em",textAlign:"center",padding:"10px",borderRadius:"var(--radius)",border:"1px dashed var(--accent)",background:"rgba(249,115,22,0.06)",userSelect:"all"}},newCode),
+            h('button',{onClick:()=>{try{navigator.clipboard.writeText(newCode);}catch(e){}},style:{padding:"10px 12px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,cursor:"pointer",border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text)"}},"Copiar")
+          )
+        ),
+        codes===null
+          ? h('div',{style:{fontSize:13,color:"var(--text3)"}},"Cargando…")
+          : codes.length===0
+            ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px",textAlign:"center",border:"1px solid var(--border)",borderRadius:"var(--radius)"}},"Aún no hay códigos.")
+            : h('div',{style:{display:"flex",flexDirection:"column",gap:6}},
+                codes.map(c=>h('div',{key:c.code,style:{
+                  display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:"var(--radius)",
+                  border:"1px solid var(--border)",background:"var(--surface)",opacity:c.used?0.55:1
+                }},
+                  h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:800,letterSpacing:"0.12em"}},c.code),
+                  h('div',{style:{flex:1,minWidth:0,fontSize:11,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label||"—"),
+                  h('div',{style:{fontSize:11,fontWeight:700,color:c.used?"var(--text3)":"var(--green)"}},c.used?"Usado":"Disponible")
+                ))
+              )
+      )
+    )
+  );
+}
+
 // Login (owner) / Crear cuenta (owner) / Unir dispositivo (empleado, código).
 function AuthScreen({reload}){
   const [mode,setMode]=useState("login");
@@ -26514,7 +26628,13 @@ function CloudRoot(){
         try{ const c=localStorage.getItem(MKEY); if(c) membership=JSON.parse(c); }catch(e2){}
       }
       if(cancel)return;
-      if(!membership){ setCtx(null); setBooting(false); return; }
+      if(!membership){
+        // No restaurant → maybe a vendor admin login (owns no data → sees the admin panel).
+        let admin=false;
+        try{ const {data}=await sb.rpc("is_superadmin"); admin=!!data; }catch(e){}
+        if(cancel)return;
+        setCtx(admin?{admin:true}:null); setBooting(false); return;
+      }
       // Deactivated (e.g. non-paying) client → show a message instead of the app.
       if(membership.restaurant_active===false){ setCtx({deactivated:true}); setBooting(false); return; }
 
@@ -26565,6 +26685,7 @@ function CloudRoot(){
   },[session,reloadN]);
 
   if(booting) return h(CloudSplash,{msg:"Conectando…"});
+  if(ctx&&ctx.admin) return h(AdminPanel,{sb,onLogout:()=>sb.auth.signOut()});
   if(ctx&&ctx.deactivated) return h(DeactivatedScreen,{onLogout:()=>sb.auth.signOut()});
   // key App by restaurant so it fully re-seeds if the account/restaurant changes
   if(ctx) return h(CloudCtx.Provider,{value:ctx}, h(App,{key:ctx.restaurantId}));
