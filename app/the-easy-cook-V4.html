@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.4";
+const APP_VERSION = "4.13.5";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.5", date:"Ago 2026", notes:"Más seguridad para trabajar entre varios dispositivos a la vez: cuando alguien borra algo (un pedido, una receta, etc.), ese borrado ya no puede 'revivir' aunque otro equipo tuviera todavía el dato en pantalla. Sumado a que ya se combinan los cambios por registro, ahora varios cajeros pueden agregar, editar y borrar al mismo tiempo sin pisarse ni duplicar."},
   {v:"4.13.4", date:"Ago 2026", notes:"Recuperación de contraseña. Si el dueño olvida su contraseña, ahora puede tocar '¿Olvidaste tu contraseña?' en el inicio de sesión, recibir un enlace por correo y elegir una nueva. (Los perfiles del equipo siguen entrando con su PIN de siempre)."},
   {v:"4.13.3", date:"Ago 2026", notes:"Panel de administración del proveedor (interno): permite generar códigos de activación y activar/pausar cuentas de clientes, sin ningún acceso a los datos de los restaurantes. No afecta el uso normal de la app."},
   {v:"4.13.2", date:"Ago 2026", notes:"Mejoras internas de la cuenta en la nube: la app recuerda tu restaurante para abrir más rápido y seguir funcionando sin internet, y se añadió el manejo de cuentas pausadas (si una cuenta se desactiva, muestra un aviso claro y tus datos quedan guardados)."},
@@ -17521,6 +17522,7 @@ const INIT = {
     ruc:"",
     foodCostTarget:30,
   },
+  _tombstones:{},   // {collection:{id:whenISO}} — deletions, so multi-device merges can't resurrect them
 };
 
 // ─── CLOUD SYNC HELPERS ────────────────────────────────────────────────────────
@@ -17577,6 +17579,25 @@ function mergeCollection(a,b){
   }
   return a!==undefined?a:b;
 }
+
+// ── Delete tombstones ───────────────────────────────────────────────────────
+// Union-merge is safe for concurrent ADDS but would resurrect a record DELETED
+// on one device while another still had it. Tombstones fix that: deletions are
+// recorded in a synced `_tombstones` doc ({collection:{id:whenISO}}) and a merged
+// collection always drops any id that is tombstoned → a delete can't be undone.
+const TOMB="_tombstones";
+const idArr=v=>Array.isArray(v)&&v.every(x=>x&&typeof x==="object"&&x.id!=null);
+// ids present in `a` but not in `b` (both arrays of {id})
+const idsRemoved=(a,b)=>{const nb=new Set((b||[]).map(x=>x&&x.id));return (a||[]).filter(x=>x&&x.id!=null&&!nb.has(x.id)).map(x=>x.id);};
+// deep-union two tombstone docs (accumulate deletions)
+function mergeTombstones(a,b){const out={};const ks=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);for(const k of ks)out[k]={...(b&&b[k]||{}),...(a&&a[k]||{})};return out;}
+const mergeAny=(name,a,b)=>name===TOMB?mergeTombstones(a,b):mergeCollection(a,b);
+// drop tombstoned ids from one collection array
+function withoutTombstoned(name,arr,tombs){if(!idArr(arr))return arr;const t=tombs&&tombs[name];if(!t)return arr;return arr.filter(x=>!(x.id in t));}
+// filter every id'd collection against the tombstones (mutates+returns data)
+function reconcileAll(data){const t=data[TOMB];if(!t)return data;for(const k of Object.keys(data))if(k!==TOMB)data[k]=withoutTombstoned(k,data[k],t);return data;}
+// drop tombstones older than `days` to bound growth (deletes have long propagated)
+function pruneTombstones(data,days){const t=data[TOMB]||{};const cutoff=Date.now()-(days||30)*86400000;const out={};for(const k of Object.keys(t)){const ids={};for(const id of Object.keys(t[k])){const ts=Date.parse(t[k][id]);if(isNaN(ts)||ts>=cutoff)ids[id]=t[k][id];}if(Object.keys(ids).length)out[k]=ids;}return out;}
 
 // Small trailing debounce so a burst of edits coalesces into one cloud write.
 function debounce(fn,ms){
@@ -26041,35 +26062,53 @@ function App(){
   const [page,setPage]=useState("dashboard");
   // Seed from the cloud snapshot Root already fetched when signed in; otherwise
   // from the local cache (offline, or pure-local mode with no Supabase).
-  const [data,setDataRaw]=useState(()=>
-    cloud&&cloud.initialData ? migrateData(cloud.initialData) : loadData());
+  const [data,setDataRaw]=useState(()=>{
+    const base = cloud&&cloud.initialData ? migrateData(cloud.initialData) : loadData();
+    if(cloud&&cloud.restaurantId){ base[TOMB]=pruneTombstones(base); reconcileAll(base); }
+    return base;
+  });
   const [toastMsg,setToastMsg]=useState(null);
   const [currentUser,setCurrentUser]=useState(null);
   const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
 
   // ── Cloud sync engine ────────────────────────────────────────────────────
   // Per-collection, so a device only ever overwrites the exact section it
-  // changed. Realtime keeps every device current; on a genuine same-section
-  // clash the server returns a conflict and we merge (by record id) + retry, so
-  // several people can add/edit at once without losing each other's work.
-  const dataRef=useRef(data);                                   // latest data for async sync
+  // changed. Realtime keeps every device current; on a same-section clash the
+  // server returns a conflict and we merge (union by record id) + retry, so
+  // several people add/edit at once without losing work. Deletions are recorded
+  // as tombstones so a merge can't resurrect them. dataRef is the single source
+  // of truth for async sync; React state just mirrors it (avoids updater races).
+  const dataRef=useRef(data);
   const versionsRef=useRef((cloud&&cloud.initialVersions)||{}); // {name: server updated_at}
   const dirtyRef=useRef(new Set());                             // collections with unsynced edits
   const syncingRef=useRef(false);
   const scheduleRef=useRef(null);                               // debounced flush
   const retryRef=useRef(null);                                  // offline backoff timer
 
-  // Apply a value to one collection locally (state + ref + offline cache).
-  const applyLocal=useCallback((name,val)=>{
-    setDataRaw(prev=>{
-      const next={...prev,[name]:val};
-      dataRef.current=next;
-      try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
-      return next;
-    });
+  const commit=useCallback((next)=>{                            // ref + offline cache, then re-render
+    dataRef.current=next;
+    try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
+    setDataRaw(next);
   },[]);
 
   const scheduleSync=useCallback(()=>{ if(scheduleRef.current)scheduleRef.current(); },[]);
+
+  // Fold a server copy of ONE collection into local state. On a conflict/our own
+  // dirty edits we union (keep our changes); otherwise take the server copy —
+  // then drop any tombstoned ids so deletes stick. TOMB rows union + reconcile all.
+  const foldIn=useCallback((name, serverData, forceMerge)=>{
+    const prev=dataRef.current;
+    let next;
+    if(name===TOMB){
+      next={...prev,[TOMB]:mergeTombstones(prev[TOMB], serverData)};
+      reconcileAll(next);
+    }else{
+      let v=(forceMerge||dirtyRef.current.has(name))?mergeCollection(prev[name],serverData):serverData;
+      v=withoutTombstoned(name, v, prev[TOMB]);
+      next={...prev,[name]:v};
+    }
+    commit(next);
+  },[commit]);
 
   const flushSync=useCallback(async()=>{
     if(!cloud||!cloud.restaurantId||!cloud.saveCollection) return;
@@ -26085,7 +26124,7 @@ function App(){
           let tries=0;
           while(res&&res.status==="conflict"&&tries<6){
             tries++;
-            applyLocal(name, mergeCollection(dataRef.current[name], res.data));
+            foldIn(name, res.data, true);                        // merge server + keep our edits
             versionsRef.current[name]=res.version;
             res=await cloud.saveCollection(name, dataRef.current[name], versionsRef.current[name]);
           }
@@ -26103,22 +26142,32 @@ function App(){
         }else scheduleSync();
       }
     }
-  },[cloud,applyLocal,scheduleSync]);
+  },[cloud,foldIn,scheduleSync]);
 
   useEffect(()=>{ scheduleRef.current=debounce(flushSync,1200); },[flushSync]);
 
   const setData=useCallback((updater)=>{
-    setDataRaw(prev=>{
-      const next=typeof updater==="function"?updater(prev):updater;
-      if(cloud&&cloud.restaurantId){                              // flag only the sections that changed
-        for(const k of COLLECTION_KEYS) if(next[k]!==prev[k]) dirtyRef.current.add(k);
+    const prev=dataRef.current;
+    let next=typeof updater==="function"?updater(prev):updater;
+    if(cloud&&cloud.restaurantId){
+      // Record deletions as tombstones (and clear them on re-add) per collection.
+      let tomb=next[TOMB]||{}, tombChanged=false;
+      for(const k of COLLECTION_KEYS){
+        if(k===TOMB||next[k]===prev[k]||!idArr(prev[k])) continue;
+        const removed=idsRemoved(prev[k],next[k]), readded=idsRemoved(next[k],prev[k]);
+        if(removed.length||readded.length){
+          const t={...(tomb[k]||{})}, nowISO=new Date().toISOString();
+          for(const id of removed) t[id]=nowISO;
+          for(const id of readded) delete t[id];
+          tomb={...tomb,[k]:t}; tombChanged=true;
+        }
       }
-      dataRef.current=next;
-      try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){} // instant offline cache
-      if(cloud&&cloud.restaurantId) scheduleSync();
-      return next;
-    });
-  },[cloud,scheduleSync]);
+      if(tombChanged){ next={...next,[TOMB]:tomb}; dirtyRef.current.add(TOMB); }
+      for(const k of COLLECTION_KEYS) if(next[k]!==prev[k]) dirtyRef.current.add(k); // flag changed sections
+    }
+    commit(next);
+    if(cloud&&cloud.restaurantId) scheduleSync();
+  },[cloud,commit,scheduleSync]);
 
   // Realtime: fold in changes other devices make, live.
   useEffect(()=>{
@@ -26131,19 +26180,13 @@ function App(){
           const row=payload.new; if(!row||!row.name) return;
           const ver=row.updated_at, known=versionsRef.current[row.name];
           if(known&&ver&&new Date(ver)<=new Date(known)) return;   // our own echo / already have it
-          setDataRaw(prev=>{
-            const val=dirtyRef.current.has(row.name)?mergeCollection(prev[row.name],row.data):row.data;
-            const next={...prev,[row.name]:val};
-            dataRef.current=next;
-            versionsRef.current[row.name]=ver;
-            try{ localStorage.setItem(APP_KEY,JSON.stringify(next)); }catch(e){}
-            return next;
-          });
+          versionsRef.current[row.name]=ver;
+          foldIn(row.name, row.data, false);
           if(dirtyRef.current.has(row.name)) scheduleSync();       // push our merged version back
         })
       .subscribe();
     return ()=>{ try{cloud.sb.removeChannel(ch);}catch(e){} };
-  },[cloud,scheduleSync]);
+  },[cloud,foldIn,scheduleSync]);
 
   // Activity logger
   const logActivity=useCallback((action,target,module)=>{
