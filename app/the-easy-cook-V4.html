@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.5";
+const APP_VERSION = "4.13.6";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.6", date:"Ago 2026", notes:"Registro de actividad completo y en Equipo. Antes casi nada quedaba registrado; ahora la app anota sola quién hizo qué en todo el sistema — insumos, recetas, precios, pedidos (abrir/cerrar/anular/descuentos), compras, mermas, equipo y configuración — con nombre y hora, y se sincroniza entre dispositivos. Lo encuentras en la pestaña 'Equipo' → 'Actividad', con filtro por persona. Así el dueño ve la actividad de todas las cuentas en un solo lugar."},
   {v:"4.13.5", date:"Ago 2026", notes:"Más seguridad para trabajar entre varios dispositivos a la vez: cuando alguien borra algo (un pedido, una receta, etc.), ese borrado ya no puede 'revivir' aunque otro equipo tuviera todavía el dato en pantalla. Sumado a que ya se combinan los cambios por registro, ahora varios cajeros pueden agregar, editar y borrar al mismo tiempo sin pisarse ni duplicar."},
   {v:"4.13.4", date:"Ago 2026", notes:"Recuperación de contraseña. Si el dueño olvida su contraseña, ahora puede tocar '¿Olvidaste tu contraseña?' en el inicio de sesión, recibir un enlace por correo y elegir una nueva. (Los perfiles del equipo siguen entrando con su PIN de siempre)."},
   {v:"4.13.3", date:"Ago 2026", notes:"Panel de administración del proveedor (interno): permite generar códigos de activación y activar/pausar cuentas de clientes, sin ningún acceso a los datos de los restaurantes. No afecta el uso normal de la app."},
@@ -17606,6 +17607,46 @@ function debounce(fn,ms){
     if(t)clearTimeout(t);
     t=setTimeout(()=>{t=null;fn(...args);},ms);
   };
+}
+
+// ─── ACTIVITY AUTO-LOGGER ───────────────────────────────────────────────────────
+// Rather than hand-instrument every screen (fragile — it was never done), we diff
+// what changed on each save and record a human-readable audit entry. One place,
+// complete coverage, attributed to the current PIN user. Runs inside setData,
+// wrapped in try/catch so a logging bug can never block a save.
+const AUDIT={
+  products:{module:"inventory",label:"insumo",name:x=>x.name},
+  recipes:{module:"recipes",label:"receta",name:x=>x.name},
+  subRecipes:{module:"recipes",label:"sub-receta",name:x=>x.name},
+  suppliers:{module:"abastecimiento",label:"proveedor",name:x=>x.name},
+  purchases:{module:"abastecimiento",label:"compra",name:x=>x.supplierName||fmtDate(x.date)||"compra",noEdit:true},
+  wastageLog:{module:"inventory",label:"merma",name:x=>x.productName||"merma",noEdit:true},
+  stockCounts:{module:"inventory",label:"conteo",name:x=>fmtDate(x.date)||"conteo",noEdit:true},
+  productionLog:{module:"recipes",label:"producción",name:x=>x.name||x.subRecipeName||"producción",noEdit:true},
+  orders:{module:"sales",label:"pedido",name:x=>x.code||("Mesa "+(x.tableNum||"")),addVerb:"Abrió",delVerb:"Anuló",
+    edit:(o,n)=>(o.status!=="closed"&&n.status==="closed")?"Cerró":(o.status==="closed"&&n.status!=="closed")?"Reabrió":((o.priceAdj||0)!==(n.priceAdj||0))?((n.priceAdj||0)<0?"Aplicó descuento a":"Ajustó"):null},
+  users:{module:"users",label:"miembro",name:x=>x.name,edit:(o,n)=>o.active!==n.active?(n.active?"Activó":"Desactivó"):"Editó"},
+};
+const _safeName=(cfg,x)=>{try{return cfg.name(x)||"";}catch(e){return "";}};
+function activityEntry(user,action,target,module){
+  return {id:"AL"+uid(),userId:user.id,userName:user.name,action,target:target||"",module,ts:new Date().toISOString().slice(0,19)};
+}
+// Diff prev→next across audited collections; returns new activity entries.
+function auditDiff(prev,next,user){
+  const out=[];
+  for(const coll of Object.keys(AUDIT)){
+    if(next[coll]===prev[coll])continue;
+    const cfg=AUDIT[coll],a=prev[coll]||[],b=next[coll]||[];
+    if(!Array.isArray(a)||!Array.isArray(b))continue;
+    const am=new Map(),bm=new Map();
+    for(const x of a)if(x&&x.id!=null)am.set(x.id,x);
+    for(const x of b)if(x&&x.id!=null)bm.set(x.id,x);
+    for(const [id,x] of bm)if(!am.has(id))out.push(activityEntry(user,(cfg.addVerb||"Agregó")+" "+cfg.label,_safeName(cfg,x),cfg.module));
+    for(const [id,x] of am)if(!bm.has(id))out.push(activityEntry(user,(cfg.delVerb||"Eliminó")+" "+cfg.label,_safeName(cfg,x),cfg.module));
+    if(!cfg.noEdit)for(const [id,x] of bm){const o=am.get(id);if(o&&o!==x){const v=cfg.edit?cfg.edit(o,x):"Editó";if(v)out.push(activityEntry(user,v+" "+cfg.label,_safeName(cfg,x),cfg.module));}}
+  }
+  if(prev.settings!==next.settings){try{if(JSON.stringify(prev.settings)!==JSON.stringify(next.settings))out.push(activityEntry(user,"Cambió la configuración","","settings"));}catch(e){}}
+  return out;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -24966,6 +25007,7 @@ function UsersPage({data,setData,toast,currentUser}){
   const [form,setForm]=useState({});
   const [confirmDel,setConfirmDel]=useState(null);
   const [showPin,setShowPin]=useState({});
+  const [tab,setTab]=useState("equipo");
   const users=data.users||[];
 
   const openAdd=()=>{
@@ -24982,27 +25024,19 @@ function UsersPage({data,setData,toast,currentUser}){
     if(!form.name||!form.pin||form.pin.length!==4||!/^\d{4}$/.test(form.pin)){
       toast("Nombre y PIN de 4 dígitos requeridos","error");return;
     }
-    const logEntry={id:"AL"+uid(),userId:currentUser.id,userName:currentUser.name,
-      action:editUser?"Usuario editado":"Usuario creado",target:form.name,module:"users",
-      ts:new Date().toISOString().slice(0,19)};
     setData(d=>({
       ...d,
       users:editUser
         ? d.users.map(u=>u.id===editUser.id?{...u,...form}:u)
-        : [...d.users,{...form,id:"U"+uid()}],
-      activityLog:[logEntry,...(d.activityLog||[])]
+        : [...d.users,{...form,id:"U"+uid()}]
     }));
     setModal(false);
     toast(editUser?"Usuario actualizado":"Usuario creado","success");
   };
   const toggleActive=u=>{
     if(u.id===currentUser.id){toast("No puedes desactivarte a ti mismo","error");return;}
-    const logEntry={id:"AL"+uid(),userId:currentUser.id,userName:currentUser.name,
-      action:u.active?"Usuario desactivado":"Usuario activado",target:u.name,module:"users",
-      ts:new Date().toISOString().slice(0,19)};
     setData(d=>({...d,
-      users:d.users.map(x=>x.id===u.id?{...x,active:!x.active}:x),
-      activityLog:[logEntry,...(d.activityLog||[])]
+      users:d.users.map(x=>x.id===u.id?{...x,active:!x.active}:x)
     }));
     toast(u.active?"Usuario desactivado":"Usuario activado","info");
   };
@@ -25010,6 +25044,14 @@ function UsersPage({data,setData,toast,currentUser}){
   const AVATARS=["👑","👨‍🍳","💰","👁","😊","🧑‍💼","🧑‍🍳","🎯","⭐","🔑"];
 
   return h('div',{className:"slide-up"},
+    // Tabs: Equipo (team management) | Actividad (audit log of all accounts)
+    h('div',{style:{display:"flex",gap:6,marginBottom:16,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
+      [["equipo","Equipo"],["actividad","Actividad"]].map(([t,lbl])=>h('button',{key:t,onClick:()=>setTab(t),style:{
+        flex:1,padding:"9px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:"pointer",
+        fontFamily:"var(--sora)",border:"none",background:tab===t?"var(--accent)":"var(--surface2)",
+        color:tab===t?"#fff":"var(--text2)"}},lbl))),
+
+    tab==="actividad" ? h(ActivityLog,{data,setPage:()=>{}}) : h(Fragment,null,
     // Header + add btn
     h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}},
       h('div',null,
@@ -25142,6 +25184,7 @@ function UsersPage({data,setData,toast,currentUser}){
         h(Btn,{variant:"ghost",onClick:()=>setModal(false)},"Cancelar")
       )
     )
+    ) // end Equipo tab Fragment
   );
 }
 
@@ -25152,7 +25195,7 @@ function ActivityLog({data,setPage}){
   const [filter,setFilter]=useState("all");
 
   const MODULE_ICONS={inventory:"📦",recipes:"🍽",menueng:"📊",abastecimiento:"🛒",
-    sales:"🧾",reports:"📋",users:"👥",dashboard:"⊞"};
+    sales:"🧾",reports:"📋",users:"👥",dashboard:"⊞",settings:"⚙️"};
   const fmtTs=ts=>{
     const d=new Date(ts+"Z");
     const now=new Date();
@@ -26084,6 +26127,8 @@ function App(){
   const syncingRef=useRef(false);
   const scheduleRef=useRef(null);                               // debounced flush
   const retryRef=useRef(null);                                  // offline backoff timer
+  const currentUserRef=useRef(currentUser);                     // latest PIN user (for logging + realtime)
+  useEffect(()=>{ currentUserRef.current=currentUser; },[currentUser]);
 
   const commit=useCallback((next)=>{                            // ref + offline cache, then re-render
     dataRef.current=next;
@@ -26149,11 +26194,22 @@ function App(){
   const setData=useCallback((updater)=>{
     const prev=dataRef.current;
     let next=typeof updater==="function"?updater(prev):updater;
+    // Audit log — record what changed, attributed to the current PIN user.
+    // Wrapped so a logging error can NEVER block the actual save.
+    try{
+      const u=currentUserRef.current;
+      if(u){
+        const entries=auditDiff(prev,next,u);
+        if(entries.length) next={...next, activityLog:[...entries,...(next.activityLog||[])].slice(0,1000)};
+      }
+    }catch(e){}
     if(cloud&&cloud.restaurantId){
       // Record deletions as tombstones (and clear them on re-add) per collection.
+      // activityLog is append-only — never tombstone it (capping would delete
+      // others' entries via merge).
       let tomb=next[TOMB]||{}, tombChanged=false;
       for(const k of COLLECTION_KEYS){
-        if(k===TOMB||next[k]===prev[k]||!idArr(prev[k])) continue;
+        if(k===TOMB||k==="activityLog"||next[k]===prev[k]||!idArr(prev[k])) continue;
         const removed=idsRemoved(prev[k],next[k]), readded=idsRemoved(next[k],prev[k]);
         if(removed.length||readded.length){
           const t={...(tomb[k]||{})}, nowISO=new Date().toISOString();
@@ -26204,10 +26260,6 @@ function App(){
     const who=(currentUser&&currentUser.name)?currentUser.name.split(" ")[0]:"Alguien";
     try{ Promise.resolve(cloud.logEvent(kind, who+": "+message, currentUser&&currentUser.name)).catch(()=>{}); }catch(e){}
   },[cloud,currentUser]);
-
-  // Latest PIN user, read inside the realtime handler without re-subscribing.
-  const currentUserRef=useRef(currentUser);
-  useEffect(()=>{ currentUserRef.current=currentUser; },[currentUser]);
 
   // Live change alerts:
   //  • OWNER device → every notable change (toggleable in Settings).
