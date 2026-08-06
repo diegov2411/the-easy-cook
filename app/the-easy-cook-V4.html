@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.6";
+const APP_VERSION = "4.13.7";
 const APP_BUILD   = "Sprint 19 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.13.7", date:"Ago 2026", notes:"Detalle del registro de actividad: saltar el asistente de primeros pasos ya no genera una entrada de 'Cambió la configuración' (era ruido interno). Los cambios reales de configuración se siguen registrando normalmente."},
   {v:"4.13.6", date:"Ago 2026", notes:"Registro de actividad completo y en Equipo. Antes casi nada quedaba registrado; ahora la app anota sola quién hizo qué en todo el sistema — insumos, recetas, precios, pedidos (abrir/cerrar/anular/descuentos), compras, mermas, equipo y configuración — con nombre y hora, y se sincroniza entre dispositivos. Lo encuentras en la pestaña 'Equipo' → 'Actividad', con filtro por persona. Así el dueño ve la actividad de todas las cuentas en un solo lugar."},
   {v:"4.13.5", date:"Ago 2026", notes:"Más seguridad para trabajar entre varios dispositivos a la vez: cuando alguien borra algo (un pedido, una receta, etc.), ese borrado ya no puede 'revivir' aunque otro equipo tuviera todavía el dato en pantalla. Sumado a que ya se combinan los cambios por registro, ahora varios cajeros pueden agregar, editar y borrar al mismo tiempo sin pisarse ni duplicar."},
   {v:"4.13.4", date:"Ago 2026", notes:"Recuperación de contraseña. Si el dueño olvida su contraseña, ahora puede tocar '¿Olvidaste tu contraseña?' en el inicio de sesión, recibir un enlace por correo y elegir una nueva. (Los perfiles del equipo siguen entrando con su PIN de siempre)."},
@@ -17645,7 +17646,12 @@ function auditDiff(prev,next,user){
     for(const [id,x] of am)if(!bm.has(id))out.push(activityEntry(user,(cfg.delVerb||"Eliminó")+" "+cfg.label,_safeName(cfg,x),cfg.module));
     if(!cfg.noEdit)for(const [id,x] of bm){const o=am.get(id);if(o&&o!==x){const v=cfg.edit?cfg.edit(o,x):"Editó";if(v)out.push(activityEntry(user,v+" "+cfg.label,_safeName(cfg,x),cfg.module));}}
   }
-  if(prev.settings!==next.settings){try{if(JSON.stringify(prev.settings)!==JSON.stringify(next.settings))out.push(activityEntry(user,"Cambió la configuración","","settings"));}catch(e){}}
+  if(prev.settings!==next.settings){try{
+    // Ignore internal/programmatic flags (e.g. the onboarding-done flag) so they
+    // don't log a spurious "changed settings" — only real config edits count.
+    const strip=s=>{const o={...(s||{})};delete o.onboarded;return o;};
+    if(JSON.stringify(strip(prev.settings))!==JSON.stringify(strip(next.settings)))out.push(activityEntry(user,"Cambió la configuración","","settings"));
+  }catch(e){}}
   return out;
 }
 
