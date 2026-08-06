@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.13.7";
-const APP_BUILD   = "Sprint 19 — Agosto 2026";
+const APP_VERSION = "4.14.0";
+const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.0", date:"Ago 2026", notes:"Facturación en el panel de administración del proveedor (interno): por cada restaurante se registra plan, precio mensual, estado (prueba/activo/vencido/cancelado), próxima fecha de pago y notas de contacto; botón 'Pagó' que adelanta el vencimiento 30 días, aviso en rojo de cuentas vencidas y un resumen de activos, vencidos e ingreso mensual. No afecta el uso normal de la app ni el acceso a los datos de los clientes."},
   {v:"4.13.7", date:"Ago 2026", notes:"Detalle del registro de actividad: saltar el asistente de primeros pasos ya no genera una entrada de 'Cambió la configuración' (era ruido interno). Los cambios reales de configuración se siguen registrando normalmente."},
   {v:"4.13.6", date:"Ago 2026", notes:"Registro de actividad completo y en Equipo. Antes casi nada quedaba registrado; ahora la app anota sola quién hizo qué en todo el sistema — insumos, recetas, precios, pedidos (abrir/cerrar/anular/descuentos), compras, mermas, equipo y configuración — con nombre y hora, y se sincroniza entre dispositivos. Lo encuentras en la pestaña 'Equipo' → 'Actividad', con filtro por persona. Así el dueño ve la actividad de todas las cuentas en un solo lugar."},
   {v:"4.13.5", date:"Ago 2026", notes:"Más seguridad para trabajar entre varios dispositivos a la vez: cuando alguien borra algo (un pedido, una receta, etc.), ese borrado ya no puede 'revivir' aunque otro equipo tuviera todavía el dato en pantalla. Sumado a que ya se combinan los cambios por registro, ahora varios cajeros pueden agregar, editar y borrar al mismo tiempo sin pisarse ni duplicar."},
@@ -26500,6 +26501,21 @@ function AdminPanel({sb,onLogout}){
     setBusy(false);
   };
 
+  // ── Billing (Phase 1) ──────────────────────────────────────────────────────
+  const [billModal,setBillModal]=useState(null);   // restaurant being edited
+  const [bf,setBf]=useState({});
+  const openBilling=(r)=>{ setBf({plan:r.plan||"",price:r.price!=null?String(r.price):"",status:r.billing_status||"trial",next_due:r.next_due_date||"",notes:r.billing_notes||""}); setBillModal(r); };
+  const saveBilling=async()=>{ if(!billModal)return; setBusy(true);
+    try{ await sb.rpc("admin_set_billing",{p_id:billModal.id,p_plan:bf.plan.trim()||null,p_price:bf.price===""?null:Number(bf.price),p_status:bf.status,p_next_due:bf.next_due||null,p_notes:bf.notes.trim()||null}); setBillModal(null); await load(); }catch(e){}
+    setBusy(false);
+  };
+  const markPaid=async(r)=>{ setBusy(true);
+    try{ await sb.rpc("admin_mark_paid",{p_id:r.id,p_period_days:30}); await load(); }catch(e){}
+    setBusy(false);
+  };
+  const STATUS={trial:{t:"Prueba",c:"var(--yellow)"},active:{t:"Activo",c:"var(--green)"},overdue:{t:"Vencido",c:"var(--red)"},canceled:{t:"Cancelado",c:"var(--text3)"}};
+  const dueText=(d)=> d==null?"sin fecha de pago": d<0?("vencido hace "+(-d)+"d"): d===0?"vence hoy":("vence en "+d+"d");
+
   const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
     flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:"pointer",
     fontFamily:"var(--sora)",border:"none",background:tab===id?"var(--accent)":"var(--surface2)",
@@ -26507,6 +26523,8 @@ function AdminPanel({sb,onLogout}){
   }},txt);
 
   const activeCount=(restaurants||[]).filter(r=>r.active).length;
+  const overdueCount=(restaurants||[]).filter(r=>r.days_until_due!=null&&r.days_until_due<0).length;
+  const mrr=(restaurants||[]).filter(r=>r.billing_status==="active"&&r.price).reduce((s,r)=>s+Number(r.price||0),0);
 
   return h('div',{style:{position:"fixed",inset:0,background:"var(--bg)",zIndex:200,overflowY:"auto"}},
     h('div',{style:{maxWidth:640,margin:"0 auto",padding:"20px"}},
@@ -26533,25 +26551,43 @@ function AdminPanel({sb,onLogout}){
           ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px 0"}},"Cargando…")
           : restaurants.length===0
             ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px",textAlign:"center",border:"1px solid var(--border)",borderRadius:"var(--radius)"}},"Todavía no hay restaurantes.")
-            : h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
-                h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:2}},activeCount+" activo(s) de "+restaurants.length),
-                restaurants.map(r=>h('div',{key:r.id,style:{
-                  display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:"var(--radius)",
-                  border:"1px solid var(--border)",background:"var(--surface)"
-                }},
-                  h('div',{style:{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.active?"var(--green)":"var(--text3)"}}),
-                  h('div',{style:{flex:1,minWidth:0}},
-                    h('div',{style:{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.name||"(sin nombre)"),
-                    h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},
-                      (r.ruc?"RUC "+r.ruc+" · ":"")+"desde "+fmtDate(r.created_at)+" · "+r.active_devices+" equipo(s)")
-                  ),
-                  h('button',{onClick:()=>toggle(r),disabled:busy,style:{
-                    padding:"6px 12px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:700,cursor:busy?"default":"pointer",
-                    border:"1px solid "+(r.active?"var(--red)":"var(--green)"),
-                    background:r.active?"rgba(239,68,68,0.1)":"rgba(34,197,94,0.12)",
-                    color:r.active?"var(--red)":"var(--green)"
-                  }},r.active?"Pausar":"Activar")
-                ))
+            : h('div',null,
+                // Summary tiles
+                h('div',{style:{display:"flex",gap:8,marginBottom:14}},
+                  [["Activos",activeCount,"var(--green)"],["Vencidos",overdueCount,overdueCount?"var(--red)":"var(--text2)"],["Ingreso/mes","S/ "+mrr.toFixed(0),"var(--accent)"]].map(([lbl,val,col])=>
+                    h('div',{key:lbl,style:{flex:1,padding:"10px",borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)",textAlign:"center"}},
+                      h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800,color:col}},String(val)),
+                      h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:2}},lbl))
+                  )
+                ),
+                h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
+                  restaurants.map(r=>{
+                    const st=STATUS[r.billing_status]||STATUS.trial;
+                    const overdue=r.days_until_due!=null&&r.days_until_due<0;
+                    return h('div',{key:r.id,style:{
+                      padding:"12px 14px",borderRadius:"var(--radius)",
+                      border:"1px solid "+(overdue?"rgba(239,68,68,0.4)":"var(--border)"),background:"var(--surface)"
+                    }},
+                      h('div',{style:{display:"flex",alignItems:"center",gap:8}},
+                        h('div',{style:{width:9,height:9,borderRadius:"50%",flexShrink:0,background:r.active?"var(--green)":"var(--text3)"}}),
+                        h('div',{style:{flex:1,minWidth:0,fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.name||"(sin nombre)"),
+                        h('span',{style:{fontSize:10,fontWeight:700,color:st.c,border:"1px solid "+st.c,borderRadius:20,padding:"2px 8px",whiteSpace:"nowrap"}},st.t),
+                        !r.active&&h('span',{style:{fontSize:10,fontWeight:700,color:"var(--text3)",border:"1px solid var(--border2)",borderRadius:20,padding:"2px 8px"}},"Pausado")
+                      ),
+                      h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:3}},
+                        (r.ruc?"RUC "+r.ruc+" · ":"")+"desde "+fmtDate(r.created_at)+" · "+r.active_devices+" equipo(s)"+(r.billing_notes?" · "+r.billing_notes:"")),
+                      h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,flexWrap:"wrap"}},
+                        h('div',{style:{fontSize:11,fontWeight:600,color:overdue?"var(--red)":"var(--text2)"}},
+                          dueText(r.days_until_due)+(r.price!=null?" · S/ "+Number(r.price).toFixed(0)+"/mes":"")),
+                        h('div',{style:{display:"flex",gap:6}},
+                          h('button',{onClick:()=>markPaid(r),disabled:busy,style:{padding:"5px 10px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid var(--green)",background:"rgba(34,197,94,0.12)",color:"var(--green)"}},"Pagó"),
+                          h('button',{onClick:()=>openBilling(r),disabled:busy,style:{padding:"5px 10px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:600,cursor:"pointer",border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text2)"}},"Editar"),
+                          h('button',{onClick:()=>toggle(r),disabled:busy,style:{padding:"5px 10px",borderRadius:"var(--radius-sm)",fontSize:11,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid "+(r.active?"var(--red)":"var(--green)"),background:r.active?"rgba(239,68,68,0.1)":"rgba(34,197,94,0.12)",color:r.active?"var(--red)":"var(--green)"}},r.active?"Pausar":"Activar")
+                        )
+                      )
+                    );
+                  })
+                )
               )
       ),
 
@@ -26581,6 +26617,28 @@ function AdminPanel({sb,onLogout}){
                   h('div',{style:{fontSize:11,fontWeight:700,color:c.used?"var(--text3)":"var(--green)"}},c.used?"Usado":"Disponible")
                 ))
               )
+      ),
+
+      // Billing edit modal
+      billModal&&h('div',{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"},onClick:()=>setBillModal(null)},
+        h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:400,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"18px",maxHeight:"90vh",overflowY:"auto"}},
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:700,marginBottom:2}},"Facturación"),
+          h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},billModal.name||"(sin nombre)"),
+          h(FormRow,{label:"Plan"},h('input',{value:bf.plan,onChange:e=>setBf(f=>({...f,plan:e.target.value})),placeholder:"ej. Básico"})),
+          h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+            h(FormRow,{label:"Precio mensual (S/)"},h('input',{type:"number",inputMode:"decimal",value:bf.price,onChange:e=>setBf(f=>({...f,price:e.target.value})),placeholder:"ej. 79"})),
+            h(FormRow,{label:"Próximo pago"},h('input',{type:"date",value:bf.next_due,onChange:e=>setBf(f=>({...f,next_due:e.target.value}))}))
+          ),
+          h(FormRow,{label:"Estado"},
+            h('select',{value:bf.status,onChange:e=>setBf(f=>({...f,status:e.target.value}))},
+              [["trial","Prueba"],["active","Activo"],["overdue","Vencido"],["canceled","Cancelado"]].map(([v,t])=>h('option',{key:v,value:v},t)))),
+          h(FormRow,{label:"Notas / contacto"},h('textarea',{value:bf.notes,onChange:e=>setBf(f=>({...f,notes:e.target.value})),placeholder:"Teléfono, WhatsApp, términos…",style:{minHeight:60,resize:"vertical"}})),
+          h('button',{onClick:async()=>{await markPaid(billModal);setBillModal(null);},disabled:busy,style:{width:"100%",padding:"10px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid var(--green)",background:"rgba(34,197,94,0.12)",color:"var(--green)",marginTop:4,marginBottom:10}},"✓ Marcar como pagado (+30 días)"),
+          h('div',{style:{display:"flex",gap:10}},
+            h(Btn,{onClick:saveBilling,disabled:busy,style:{flex:1}},"Guardar"),
+            h(Btn,{variant:"ghost",onClick:()=>setBillModal(null)},"Cancelar")
+          )
+        )
       )
     )
   );
