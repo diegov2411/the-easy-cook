@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.0";
+const APP_VERSION = "4.14.1";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.1", date:"Ago 2026", notes:"Mejoras en los códigos de activación (panel del proveedor, interno): los códigos pueden tener vencimiento (7/14/30 días o sin vencimiento), se pueden anular los que no se han usado, y la lista muestra el estado (disponible/usado/vencido/anulado) y a qué restaurante se aplicó cada código usado."},
   {v:"4.14.0", date:"Ago 2026", notes:"Facturación en el panel de administración del proveedor (interno): por cada restaurante se registra plan, precio mensual, estado (prueba/activo/vencido/cancelado), próxima fecha de pago y notas de contacto; botón 'Pagó' que adelanta el vencimiento 30 días, aviso en rojo de cuentas vencidas y un resumen de activos, vencidos e ingreso mensual. No afecta el uso normal de la app ni el acceso a los datos de los clientes."},
   {v:"4.13.7", date:"Ago 2026", notes:"Detalle del registro de actividad: saltar el asistente de primeros pasos ya no genera una entrada de 'Cambió la configuración' (era ruido interno). Los cambios reales de configuración se siguen registrando normalmente."},
   {v:"4.13.6", date:"Ago 2026", notes:"Registro de actividad completo y en Equipo. Antes casi nada quedaba registrado; ahora la app anota sola quién hizo qué en todo el sistema — insumos, recetas, precios, pedidos (abrir/cerrar/anular/descuentos), compras, mermas, equipo y configuración — con nombre y hora, y se sincroniza entre dispositivos. Lo encuentras en la pestaña 'Equipo' → 'Actividad', con filtro por persona. Así el dueño ve la actividad de todas las cuentas en un solo lugar."},
@@ -26496,10 +26497,16 @@ function AdminPanel({sb,onLogout}){
     try{ await sb.rpc("admin_set_active",{p_id:r.id,p_active:!r.active}); await load(); }catch(e){}
     setBusy(false);
   };
+  const [expDays,setExpDays]=useState("");   // "" = never
   const genCode=async()=>{ setBusy(true); setNewCode(null);
-    try{ const {data,error}=await sb.rpc("admin_gen_code",{p_label:label.trim()||null}); if(!error){ setNewCode(data); setLabel(""); await load(); } }catch(e){}
+    try{ const {data,error}=await sb.rpc("admin_gen_code",{p_label:label.trim()||null,p_expires_days:expDays===""?null:Number(expDays)}); if(!error){ setNewCode(data); setLabel(""); await load(); } }catch(e){}
     setBusy(false);
   };
+  const revokeCode=async(code)=>{ setBusy(true);
+    try{ await sb.rpc("admin_revoke_code",{p_code:code}); await load(); }catch(e){}
+    setBusy(false);
+  };
+  const CODE_STATUS={available:{t:"Disponible",c:"var(--green)"},used:{t:"Usado",c:"var(--text3)"},expired:{t:"Vencido",c:"var(--yellow)"},revoked:{t:"Anulado",c:"var(--red)"}};
 
   // ── Billing (Phase 1) ──────────────────────────────────────────────────────
   const [billModal,setBillModal]=useState(null);   // restaurant being edited
@@ -26594,9 +26601,11 @@ function AdminPanel({sb,onLogout}){
       tab==="codes"&&h('div',null,
         h('div',{style:{padding:"14px",borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)",marginBottom:16}},
           h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:8}},"Generar código de activación"),
+          h('input',{value:label,onChange:e=>setLabel(e.target.value),placeholder:"Para quién (ej. Cliente: Andiamo)",style:{fontSize:13,marginBottom:8}}),
           h('div',{style:{display:"flex",gap:8}},
-            h('input',{value:label,onChange:e=>setLabel(e.target.value),placeholder:"Para quién (ej. Cliente: Andiamo)",style:{flex:1,fontSize:13}}),
-            h('button',{onClick:genCode,disabled:busy,style:{padding:"0 16px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:busy?"default":"pointer",border:"none",background:"var(--accent)",color:"#fff",whiteSpace:"nowrap"}},busy?"…":"Generar")
+            h('select',{value:expDays,onChange:e=>setExpDays(e.target.value),style:{flex:1,fontSize:13}},
+              [["","Sin vencimiento"],["7","Vence en 7 días"],["14","Vence en 14 días"],["30","Vence en 30 días"]].map(([v,t])=>h('option',{key:v,value:v},t))),
+            h('button',{onClick:genCode,disabled:busy,style:{padding:"0 18px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:busy?"default":"pointer",border:"none",background:"var(--accent)",color:"#fff",whiteSpace:"nowrap"}},busy?"…":"Generar")
           ),
           newCode&&h('div',{style:{marginTop:12,display:"flex",alignItems:"center",gap:10}},
             h('div',{style:{flex:1,fontFamily:"var(--sora)",fontSize:22,fontWeight:800,letterSpacing:"0.18em",textAlign:"center",padding:"10px",borderRadius:"var(--radius)",border:"1px dashed var(--accent)",background:"rgba(249,115,22,0.06)",userSelect:"all"}},newCode),
@@ -26608,14 +26617,22 @@ function AdminPanel({sb,onLogout}){
           : codes.length===0
             ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px",textAlign:"center",border:"1px solid var(--border)",borderRadius:"var(--radius)"}},"Aún no hay códigos.")
             : h('div',{style:{display:"flex",flexDirection:"column",gap:6}},
-                codes.map(c=>h('div',{key:c.code,style:{
-                  display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:"var(--radius)",
-                  border:"1px solid var(--border)",background:"var(--surface)",opacity:c.used?0.55:1
-                }},
-                  h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:800,letterSpacing:"0.12em"}},c.code),
-                  h('div',{style:{flex:1,minWidth:0,fontSize:11,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label||"—"),
-                  h('div',{style:{fontSize:11,fontWeight:700,color:c.used?"var(--text3)":"var(--green)"}},c.used?"Usado":"Disponible")
-                ))
+                codes.map(c=>{
+                  const cs=CODE_STATUS[c.status]||CODE_STATUS.available;
+                  return h('div',{key:c.code,style:{
+                    display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:"var(--radius)",
+                    border:"1px solid var(--border)",background:"var(--surface)",opacity:(c.status==="used"||c.status==="revoked")?0.6:1
+                  }},
+                    h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:800,letterSpacing:"0.12em"}},c.code),
+                    h('div',{style:{flex:1,minWidth:0}},
+                      h('div',{style:{fontSize:11,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label||"—"),
+                      (c.restaurant||c.expires_at)&&h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:1}},
+                        c.restaurant?("→ "+c.restaurant):("vence "+fmtDate(c.expires_at)))
+                    ),
+                    h('span',{style:{fontSize:10,fontWeight:700,color:cs.c,border:"1px solid "+cs.c,borderRadius:20,padding:"2px 8px",whiteSpace:"nowrap"}},cs.t),
+                    c.status==="available"&&h('button',{onClick:()=>revokeCode(c.code),disabled:busy,style:{padding:"4px 8px",borderRadius:"var(--radius-sm)",fontSize:10,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid var(--red)",background:"rgba(239,68,68,0.1)",color:"var(--red)"}},"Anular")
+                  );
+                })
               )
       ),
 
