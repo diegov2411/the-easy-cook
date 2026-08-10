@@ -161,6 +161,9 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
      desktop and free of false matches (11px/100px unaffected). */
   [style*="font-size: 9px"],
   [style*="font-size: 10px"]{font-size:11px!important;}
+  /* Dashboard hero KPIs: the 2×2 mobile layout has room, so make the headline
+     numbers bigger. Desktop keeps the inline 14px (this rule is phone-only). */
+  .kpi-hero-val{font-size:20px!important;}
 }
 @media(min-width:769px){
   /* Hide mobile-only topbar buttons — sidebar handles them */
@@ -17420,9 +17423,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.5";
+const APP_VERSION = "4.14.6";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.6", date:"Ago 2026", notes:"Tablero principal más claro en el celular: las cifras de hoy (Ventas, % Costo, Margen, Pedidos) ahora se muestran en una cuadrícula 2×2 con números grandes y fáciles de leer de un vistazo. En pantalla grande se mantiene la fila de 4 como antes."},
   {v:"4.14.5", date:"Ago 2026", notes:"Lectura más cómoda en el celular: el texto más pequeño (9–10px) ahora se muestra un poco más grande para que se lea mejor, y los botones de acción (Merma, Editar, etc.) tienen un área de toque más amplia para no fallar el dedo. En pantalla grande todo queda exactamente igual que antes."},
   {v:"4.14.4", date:"Ago 2026", notes:"Navegación más cómoda en el celular: la barra inferior ahora muestra los accesos del día a día (Inicio, Ventas, Stock, Recetas) y agrupa el resto en un botón 'Más', en vez de apretar 9 iconos diminutos. Las pestañas dentro de las secciones ya no se encogen: se deslizan de lado cuando no entran. En pantalla grande todo se ve igual que antes."},
   {v:"4.14.3", date:"Ago 2026", notes:"Ajustes del panel del proveedor (interno): ahora se pueden gestionar los administradores del panel (agregar por correo / quitar, sin poder quitarse uno mismo) desde una pestaña 'Ajustes', y hay un registro de las acciones del panel (quién pausó, cobró, generó códigos, etc.)."},
@@ -18716,8 +18720,11 @@ function Dashboard({data,setPage,currentUser}){
             )
       ),
 
-      // Main KPI row — 4 metrics
-      h('div',{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)"}},
+      // Main KPI row — 4 metrics. Mobile: 2×2 (roomy, bigger numbers).
+      // Desktop: 4-up via .kpi-grid-desktop. Dividers come from the 1px grid
+      // gap over a border-colored track, so both layouts get clean separators
+      // with no per-cell border logic.
+      h('div',{className:"kpi-grid-desktop",style:{display:"grid",gridTemplateColumns:"1fr 1fr",background:"var(--border)",gap:1}},
         [
           {
             label:"Ventas",
@@ -18750,11 +18757,11 @@ function Dashboard({data,setPage,currentUser}){
         ].map((k,i)=>h('div',{key:k.label,
           onClick:k.onClick,
           style:{
-            padding:"12px 8px",textAlign:"center",cursor:"pointer",
-            borderRight:i<3?"1px solid var(--border)":"none",
+            padding:"13px 8px",textAlign:"center",cursor:"pointer",
+            background:"var(--surface)",
             transition:"background .15s"
           }},
-          h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color}},k.value),
+          h('div',{className:"kpi-hero-val",style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color}},k.value),
           h('div',{style:{fontSize:9,color:"var(--text3)",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}},k.label),
           k.sub&&h('div',{style:{fontSize:9,color:"var(--text3)",opacity:0.7,marginTop:1}},k.sub)
         ))
