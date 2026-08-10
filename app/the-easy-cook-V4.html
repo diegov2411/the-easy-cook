@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.1";
+const APP_VERSION = "4.14.2";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.2", date:"Ago 2026", notes:"Monitoreo de actividad de clientes (panel del proveedor, interno): cada restaurante muestra hace cuánto tuvo actividad (verde/amarillo/rojo según los días inactivo), y hay un contador de restaurantes inactivos, para detectar a tiempo cuentas que se están enfriando. Solo usa fechas de actividad, sin acceder a los datos del cliente."},
   {v:"4.14.1", date:"Ago 2026", notes:"Mejoras en los códigos de activación (panel del proveedor, interno): los códigos pueden tener vencimiento (7/14/30 días o sin vencimiento), se pueden anular los que no se han usado, y la lista muestra el estado (disponible/usado/vencido/anulado) y a qué restaurante se aplicó cada código usado."},
   {v:"4.14.0", date:"Ago 2026", notes:"Facturación en el panel de administración del proveedor (interno): por cada restaurante se registra plan, precio mensual, estado (prueba/activo/vencido/cancelado), próxima fecha de pago y notas de contacto; botón 'Pagó' que adelanta el vencimiento 30 días, aviso en rojo de cuentas vencidas y un resumen de activos, vencidos e ingreso mensual. No afecta el uso normal de la app ni el acceso a los datos de los clientes."},
   {v:"4.13.7", date:"Ago 2026", notes:"Detalle del registro de actividad: saltar el asistente de primeros pasos ya no genera una entrada de 'Cambió la configuración' (era ruido interno). Los cambios reales de configuración se siguen registrando normalmente."},
@@ -26522,6 +26523,7 @@ function AdminPanel({sb,onLogout}){
   };
   const STATUS={trial:{t:"Prueba",c:"var(--yellow)"},active:{t:"Activo",c:"var(--green)"},overdue:{t:"Vencido",c:"var(--red)"},canceled:{t:"Cancelado",c:"var(--text3)"}};
   const dueText=(d)=> d==null?"sin fecha de pago": d<0?("vencido hace "+(-d)+"d"): d===0?"vence hoy":("vence en "+d+"d");
+  const healthInfo=(r)=>{ const d=r.days_inactive; if(d==null)return {t:"sin actividad",c:"var(--text3)"}; if(d===0)return {t:"activo hoy",c:"var(--green)"}; if(d<7)return {t:"activo hace "+d+"d",c:"var(--green)"}; if(d<14)return {t:"inactivo "+d+"d",c:"var(--yellow)"}; return {t:"inactivo "+d+"d",c:"var(--red)"}; };
 
   const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
     flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:"pointer",
@@ -26531,6 +26533,7 @@ function AdminPanel({sb,onLogout}){
 
   const activeCount=(restaurants||[]).filter(r=>r.active).length;
   const overdueCount=(restaurants||[]).filter(r=>r.days_until_due!=null&&r.days_until_due<0).length;
+  const inactiveCount=(restaurants||[]).filter(r=>r.days_inactive!=null&&r.days_inactive>=14).length;
   const mrr=(restaurants||[]).filter(r=>r.billing_status==="active"&&r.price).reduce((s,r)=>s+Number(r.price||0),0);
 
   return h('div',{style:{position:"fixed",inset:0,background:"var(--bg)",zIndex:200,overflowY:"auto"}},
@@ -26561,7 +26564,7 @@ function AdminPanel({sb,onLogout}){
             : h('div',null,
                 // Summary tiles
                 h('div',{style:{display:"flex",gap:8,marginBottom:14}},
-                  [["Activos",activeCount,"var(--green)"],["Vencidos",overdueCount,overdueCount?"var(--red)":"var(--text2)"],["Ingreso/mes","S/ "+mrr.toFixed(0),"var(--accent)"]].map(([lbl,val,col])=>
+                  [["Activos",activeCount,"var(--green)"],["Inactivos",inactiveCount,inactiveCount?"var(--red)":"var(--text2)"],["Vencidos",overdueCount,overdueCount?"var(--red)":"var(--text2)"],["Ingreso","S/ "+mrr.toFixed(0),"var(--accent)"]].map(([lbl,val,col])=>
                     h('div',{key:lbl,style:{flex:1,padding:"10px",borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)",textAlign:"center"}},
                       h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800,color:col}},String(val)),
                       h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:2}},lbl))
@@ -26571,6 +26574,7 @@ function AdminPanel({sb,onLogout}){
                   restaurants.map(r=>{
                     const st=STATUS[r.billing_status]||STATUS.trial;
                     const overdue=r.days_until_due!=null&&r.days_until_due<0;
+                    const hi=healthInfo(r);
                     return h('div',{key:r.id,style:{
                       padding:"12px 14px",borderRadius:"var(--radius)",
                       border:"1px solid "+(overdue?"rgba(239,68,68,0.4)":"var(--border)"),background:"var(--surface)"
@@ -26583,6 +26587,9 @@ function AdminPanel({sb,onLogout}){
                       ),
                       h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:3}},
                         (r.ruc?"RUC "+r.ruc+" · ":"")+"desde "+fmtDate(r.created_at)+" · "+r.active_devices+" equipo(s)"+(r.billing_notes?" · "+r.billing_notes:"")),
+                      h('div',{style:{display:"flex",alignItems:"center",gap:5,marginTop:3}},
+                        h('div',{style:{width:7,height:7,borderRadius:"50%",background:hi.c}}),
+                        h('div',{style:{fontSize:11,fontWeight:600,color:hi.c}},hi.t)),
                       h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8,flexWrap:"wrap"}},
                         h('div',{style:{fontSize:11,fontWeight:600,color:overdue?"var(--red)":"var(--text2)"}},
                           dueText(r.days_until_due)+(r.price!=null?" · S/ "+Number(r.price).toFixed(0)+"/mes":"")),
