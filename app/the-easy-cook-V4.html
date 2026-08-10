@@ -45,6 +45,9 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 .ec-card-clickable{transition:border-color .15s ease, transform .15s ease}
 .ec-card-clickable:hover{border-color:var(--border2)!important;transform:translateY(-1px)}
 .ec-hover-accent:hover{border-color:var(--accent)!important}
+/* Scrollable tab strips: hide the horizontal scrollbar (pills scroll on mobile, sit inline on desktop) */
+.ec-tabs{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}
+.ec-tabs::-webkit-scrollbar{display:none;}
 
 /* ── DESKTOP LAYOUT (≥769px) ─────────────────────────────────────────── */
 @media(min-width:769px){
@@ -17403,9 +17406,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.3";
+const APP_VERSION = "4.14.4";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.4", date:"Ago 2026", notes:"Navegación más cómoda en el celular: la barra inferior ahora muestra los accesos del día a día (Inicio, Ventas, Stock, Recetas) y agrupa el resto en un botón 'Más', en vez de apretar 9 iconos diminutos. Las pestañas dentro de las secciones ya no se encogen: se deslizan de lado cuando no entran. En pantalla grande todo se ve igual que antes."},
   {v:"4.14.3", date:"Ago 2026", notes:"Ajustes del panel del proveedor (interno): ahora se pueden gestionar los administradores del panel (agregar por correo / quitar, sin poder quitarse uno mismo) desde una pestaña 'Ajustes', y hay un registro de las acciones del panel (quién pausó, cobró, generó códigos, etc.)."},
   {v:"4.14.2", date:"Ago 2026", notes:"Monitoreo de actividad de clientes (panel del proveedor, interno): cada restaurante muestra hace cuánto tuvo actividad (verde/amarillo/rojo según los días inactivo), y hay un contador de restaurantes inactivos, para detectar a tiempo cuentas que se están enfriando. Solo usa fechas de actividad, sin acceder a los datos del cliente."},
   {v:"4.14.1", date:"Ago 2026", notes:"Mejoras en los códigos de activación (panel del proveedor, interno): los códigos pueden tener vencimiento (7/14/30 días o sin vencimiento), se pueden anular los que no se han usado, y la lista muestra el estado (disponible/usado/vencido/anulado) y a qué restaurante se aplicó cada código usado."},
@@ -17906,6 +17910,24 @@ function Card({children,style,onClick,className}){
     className:[onClick&&"ec-card-clickable",className].filter(Boolean).join(" ")||undefined,
     style:{...S.card,cursor:onClick?"pointer":"default",...style},
   },children);
+}
+
+// Shared segmented tab strip. Each tab is [id,label] or {id,label}.
+// fill=true → tabs split the width evenly (segmented control, e.g. AuthScreen).
+// fill=false (default) → content-sized pills that scroll horizontally when they
+// overflow (good for many sub-tabs on a narrow phone; inline on desktop).
+function Tabs({tabs,active,onChange,fill,style}){
+  return h('div',{className:"ec-tabs",style:{display:"flex",gap:6,overflowX:fill?"visible":"auto",
+      background:"var(--surface)",padding:4,borderRadius:"var(--radius)",...style}},
+    (tabs||[]).map(t=>{
+      const id=Array.isArray(t)?t[0]:t.id, lbl=Array.isArray(t)?t[1]:t.label, on=active===id;
+      return h('button',{key:id,onClick:()=>onChange(id),style:{
+        flex:fill?"1 1 0":"0 0 auto", padding:"9px 16px", borderRadius:"var(--radius-sm)",
+        fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"var(--sora)", border:"none",
+        whiteSpace:"nowrap", transition:"background .15s,color .15s",
+        background:on?"var(--accent)":"var(--surface2)", color:on?"#fff":"var(--text2)"}}, lbl);
+    })
+  );
 }
 
 function Btn({children,onClick,variant="primary",style,disabled,size="md"}){
@@ -23041,10 +23063,10 @@ function SalesRecon({data,setData,toast,currentUser}){
   const [tab,setTab]=useState("sales");
   const discCount=(data.orders||[]).filter(o=>(o.priceAdj||0)<0).length;
   return h('div',{className:"slide-up"},
-    h('div',{style:{display:"flex",gap:6,marginBottom:16}},
+    h('div',{className:"ec-tabs",style:{display:"flex",gap:6,marginBottom:16,overflowX:"auto"}},
       [{id:"sales",icon:"🧾",label:"Ventas"},{id:"payrecon",icon:"💰",label:"Caja"},{id:"descuentos",icon:"🏷",label:"Descuentos"+(discCount>0?" ("+discCount+")":"")}]
         .map(t=>h('button',{key:t.id,onClick:()=>setTab(t.id),style:{
-          flex:1,padding:"9px 4px",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
+          flex:"1 1 auto",padding:"9px 12px",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
           fontFamily:"var(--sans)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
           borderColor:tab===t.id?"var(--accent)":"var(--border2)",
           background:tab===t.id?"rgba(249,115,22,0.15)":"var(--surface2)",
@@ -25055,11 +25077,7 @@ function UsersPage({data,setData,toast,currentUser}){
 
   return h('div',{className:"slide-up"},
     // Tabs: Equipo (team management) | Actividad (audit log of all accounts)
-    h('div',{style:{display:"flex",gap:6,marginBottom:16,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
-      [["equipo","Equipo"],["actividad","Actividad"]].map(([t,lbl])=>h('button',{key:t,onClick:()=>setTab(t),style:{
-        flex:1,padding:"9px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:"pointer",
-        fontFamily:"var(--sora)",border:"none",background:tab===t?"var(--accent)":"var(--surface2)",
-        color:tab===t?"#fff":"var(--text2)"}},lbl))),
+    h(Tabs,{active:tab,onChange:setTab,fill:true,style:{marginBottom:16},tabs:[["equipo","Equipo"],["actividad","Actividad"]]}),
 
     tab==="actividad" ? h(ActivityLog,{data,setPage:()=>{}}) : h(Fragment,null,
     // Header + add btn
@@ -25821,7 +25839,10 @@ const NAV=[
   {id:"users",icon:"👥",label:"Equipo"},
   {id:"settings",icon:"⚙️",label:"Config"},
 ];
+// Which pages stay on the bar (daily-use); the rest fold into "Más".
+const NAV_PRIMARY=["dashboard","salesrecon","inventory","recipes"];
 function BottomNav({page,setPage,role}){
+  const [moreOpen,setMoreOpen]=useState(false);
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
     if(n.id==="reports"&&!can(role,"viewReports"))return false;
@@ -25832,17 +25853,46 @@ function BottomNav({page,setPage,role}){
     if(n.id==="abastecimiento"&&!can(role,"editPurchases")&&role!=="owner")return false;
     return true;
   });
-  return h('div',{className:"app-bottomnav",style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
-    background:"rgba(24,28,39,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid var(--border2)",
-    display:"flex",justifyContent:"space-around",padding:"8px 0 calc(8px + env(safe-area-inset-bottom, 0px))",zIndex:100}},
-    visibleNav.map(n=>h('button',{key:n.id,onClick:()=>setPage(n.id),style:{
-      display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-      background:"none",border:"none",padding:"4px 6px",
-      color:page===n.id?"var(--accent)":"var(--text3)"}},
-      h('span',{style:{fontSize:page===n.id?18:16}},n.icon),
-      h('span',{style:{fontSize:9,fontWeight:page===n.id?600:400}},n.label),
-      page===n.id&&h('div',{style:{width:4,height:4,borderRadius:"50%",background:"var(--accent)",marginTop:1}})
-    ))
+  // ≤5 items → show them all; more → keep 4 daily-use tabs + a "Más" overflow.
+  const overflow=visibleNav.length>5;
+  const primary=overflow
+    ? NAV_PRIMARY.map(id=>visibleNav.find(n=>n.id===id)).filter(Boolean).slice(0,4)
+    : visibleNav;
+  const more=overflow?visibleNav.filter(n=>!primary.includes(n)):[];
+  const moreActive=more.some(n=>n.id===page);
+
+  const navBtn=(n,onClick,on)=>h('button',{key:n.id,onClick,style:{
+    display:"flex",flexDirection:"column",alignItems:"center",gap:2,flex:1,
+    background:"none",border:"none",padding:"4px 2px",cursor:"pointer",
+    color:on?"var(--accent)":"var(--text3)"}},
+    h('span',{style:{fontSize:on?18:16}},n.icon),
+    h('span',{style:{fontSize:9,fontWeight:on?600:400}},n.label),
+    on&&h('div',{style:{width:4,height:4,borderRadius:"50%",background:"var(--accent)",marginTop:1}})
+  );
+
+  return h(Fragment,null,
+    h('div',{className:"app-bottomnav",style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
+      background:"rgba(24,28,39,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid var(--border2)",
+      display:"flex",padding:"8px 0 calc(8px + env(safe-area-inset-bottom, 0px))",zIndex:100}},
+      primary.map(n=>navBtn(n,()=>setPage(n.id),page===n.id)),
+      overflow&&navBtn({id:"__more",icon:"☰",label:"Más"},()=>setMoreOpen(true),moreActive)
+    ),
+    moreOpen&&h('div',{onClick:()=>setMoreOpen(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:150,display:"flex",alignItems:"flex-end"}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:430,margin:"0 auto",background:"var(--surface)",
+        borderTopLeftRadius:18,borderTopRightRadius:18,borderTop:"1px solid var(--border2)",
+        padding:"10px 16px calc(20px + env(safe-area-inset-bottom, 0px))"}},
+        h('div',{style:{width:38,height:4,borderRadius:2,background:"var(--border2)",margin:"2px auto 14px"}}),
+        h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          more.map(n=>{const on=page===n.id; return h('button',{key:n.id,onClick:()=>{setPage(n.id);setMoreOpen(false);},style:{
+            display:"flex",alignItems:"center",gap:11,padding:"14px",borderRadius:"var(--radius)",cursor:"pointer",textAlign:"left",
+            border:"1px solid "+(on?"var(--accent)":"var(--border)"),background:on?"rgba(249,115,22,0.10)":"var(--surface2)",
+            color:on?"var(--accent)":"var(--text)"}},
+            h('span',{style:{fontSize:20}},n.icon),
+            h('span',{style:{fontSize:13,fontWeight:600,fontFamily:"var(--sora)"}},n.label)
+          );})
+        )
+      )
+    )
   );
 }
 
@@ -26540,12 +26590,6 @@ function AdminPanel({sb,onLogout}){
   const dueText=(d)=> d==null?"sin fecha de pago": d<0?("vencido hace "+(-d)+"d"): d===0?"vence hoy":("vence en "+d+"d");
   const healthInfo=(r)=>{ const d=r.days_inactive; if(d==null)return {t:"sin actividad",c:"var(--text3)"}; if(d===0)return {t:"activo hoy",c:"var(--green)"}; if(d<7)return {t:"activo hace "+d+"d",c:"var(--green)"}; if(d<14)return {t:"inactivo "+d+"d",c:"var(--yellow)"}; return {t:"inactivo "+d+"d",c:"var(--red)"}; };
 
-  const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
-    flex:1,padding:"10px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:"pointer",
-    fontFamily:"var(--sora)",border:"none",background:tab===id?"var(--accent)":"var(--surface2)",
-    color:tab===id?"#fff":"var(--text2)"
-  }},txt);
-
   const activeCount=(restaurants||[]).filter(r=>r.active).length;
   const overdueCount=(restaurants||[]).filter(r=>r.days_until_due!=null&&r.days_until_due<0).length;
   const inactiveCount=(restaurants||[]).filter(r=>r.days_inactive!=null&&r.days_inactive>=14).length;
@@ -26566,11 +26610,11 @@ function AdminPanel({sb,onLogout}){
       h('div',{style:{fontSize:11,color:"var(--text3)",lineHeight:1.5,marginBottom:16,padding:"8px 10px",background:"var(--surface)",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)"}},
         "🔒 Este panel gestiona cuentas — no tiene acceso a los datos de los restaurantes (recetas, ventas, etc.)."),
 
-      h('div',{style:{display:"flex",gap:6,marginBottom:16,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
-        tabBtn("clients","Restaurantes"+(restaurants?" ("+restaurants.length+")":"")),
-        tabBtn("codes","Códigos"),
-        tabBtn("ops","Ajustes")
-      ),
+      h(Tabs,{active:tab,onChange:setTab,fill:true,style:{marginBottom:16},tabs:[
+        ["clients","Clientes"+(restaurants?" ("+restaurants.length+")":"")],
+        ["codes","Códigos"],
+        ["ops","Ajustes"]
+      ]}),
 
       tab==="clients"&&h('div',null,
         restaurants===null
@@ -26789,13 +26833,6 @@ function AuthScreen({reload}){
 
   const submit=()=>{ if(mode==="login")doLogin(); else if(mode==="signup")doSignup(); else if(mode==="forgot")doForgot(); else doJoin(); };
 
-  const tab=(id,label)=>h('button',{onClick:()=>switchMode(id),style:{
-    flex:1,padding:"9px 4px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:700,cursor:"pointer",
-    fontFamily:"var(--sora)",border:"none",
-    background:mode===id?"var(--accent)":"var(--surface2)",
-    color:mode===id?"#fff":"var(--text2)",transition:"all .15s"
-  }},label);
-
   return h('div',{style:{
     position:"fixed",inset:0,background:"var(--bg)",zIndex:200,
     display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 20px"
@@ -26812,11 +26849,11 @@ function AuthScreen({reload}){
               :"Entra a la cuenta de tu restaurante o crea una nueva.")
       ),
 
-      mode!=="forgot"&&h('div',{style:{display:"flex",gap:6,marginBottom:18,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
-        tab("login","Iniciar sesión"),
-        tab("signup","Crear cuenta"),
-        tab("join","Unir equipo")
-      ),
+      mode!=="forgot"&&h(Tabs,{active:mode,onChange:switchMode,fill:true,style:{marginBottom:18},tabs:[
+        ["login","Iniciar sesión"],
+        ["signup","Crear cuenta"],
+        ["join","Unir equipo"]
+      ]}),
 
       mode==="login"&&h(Fragment,null,
         h(FormRow,{label:"Correo"},
