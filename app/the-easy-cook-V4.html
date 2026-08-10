@@ -17403,9 +17403,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.2";
+const APP_VERSION = "4.14.3";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.3", date:"Ago 2026", notes:"Ajustes del panel del proveedor (interno): ahora se pueden gestionar los administradores del panel (agregar por correo / quitar, sin poder quitarse uno mismo) desde una pestaña 'Ajustes', y hay un registro de las acciones del panel (quién pausó, cobró, generó códigos, etc.)."},
   {v:"4.14.2", date:"Ago 2026", notes:"Monitoreo de actividad de clientes (panel del proveedor, interno): cada restaurante muestra hace cuánto tuvo actividad (verde/amarillo/rojo según los días inactivo), y hay un contador de restaurantes inactivos, para detectar a tiempo cuentas que se están enfriando. Solo usa fechas de actividad, sin acceder a los datos del cliente."},
   {v:"4.14.1", date:"Ago 2026", notes:"Mejoras en los códigos de activación (panel del proveedor, interno): los códigos pueden tener vencimiento (7/14/30 días o sin vencimiento), se pueden anular los que no se han usado, y la lista muestra el estado (disponible/usado/vencido/anulado) y a qué restaurante se aplicó cada código usado."},
   {v:"4.14.0", date:"Ago 2026", notes:"Facturación en el panel de administración del proveedor (interno): por cada restaurante se registra plan, precio mensual, estado (prueba/activo/vencido/cancelado), próxima fecha de pago y notas de contacto; botón 'Pagó' que adelanta el vencimiento 30 días, aviso en rojo de cuentas vencidas y un resumen de activos, vencidos e ingreso mensual. No afecta el uso normal de la app ni el acceso a los datos de los clientes."},
@@ -26484,6 +26485,10 @@ function AdminPanel({sb,onLogout}){
   const [tab,setTab]=useState("clients");
   const [restaurants,setRestaurants]=useState(null);
   const [codes,setCodes]=useState(null);
+  const [admins,setAdmins]=useState(null);
+  const [audit,setAudit]=useState(null);
+  const [newAdminEmail,setNewAdminEmail]=useState("");
+  const [adminMsg,setAdminMsg]=useState("");
   const [busy,setBusy]=useState(false);
   const [label,setLabel]=useState("");
   const [newCode,setNewCode]=useState(null);
@@ -26491,7 +26496,17 @@ function AdminPanel({sb,onLogout}){
   const load=useCallback(async()=>{
     try{ const {data}=await sb.rpc("admin_list_restaurants"); setRestaurants(data||[]); }catch(e){ setRestaurants([]); }
     try{ const {data}=await sb.rpc("admin_list_codes"); setCodes(data||[]); }catch(e){ setCodes([]); }
+    try{ const {data}=await sb.rpc("admin_list_admins"); setAdmins(data||[]); }catch(e){ setAdmins([]); }
+    try{ const {data}=await sb.rpc("admin_list_audit",{p_limit:80}); setAudit(data||[]); }catch(e){ setAudit([]); }
   },[sb]);
+  const addAdmin=async()=>{ if(!newAdminEmail.trim())return; setBusy(true); setAdminMsg("");
+    try{ const {error}=await sb.rpc("admin_add_admin",{p_email:newAdminEmail.trim()}); if(error){ setAdminMsg(error.message||"Error"); } else { setNewAdminEmail(""); await load(); } }catch(e){ setAdminMsg(String(e&&e.message||e)); }
+    setBusy(false);
+  };
+  const removeAdmin=async(uid)=>{ setBusy(true); setAdminMsg("");
+    try{ const {error}=await sb.rpc("admin_remove_admin",{p_user:uid}); if(error) setAdminMsg(error.message||"Error"); else await load(); }catch(e){}
+    setBusy(false);
+  };
   useEffect(()=>{ load(); },[load]);
 
   const toggle=async(r)=>{ setBusy(true);
@@ -26553,7 +26568,8 @@ function AdminPanel({sb,onLogout}){
 
       h('div',{style:{display:"flex",gap:6,marginBottom:16,background:"var(--surface)",padding:4,borderRadius:"var(--radius)"}},
         tabBtn("clients","Restaurantes"+(restaurants?" ("+restaurants.length+")":"")),
-        tabBtn("codes","Códigos")
+        tabBtn("codes","Códigos"),
+        tabBtn("ops","Ajustes")
       ),
 
       tab==="clients"&&h('div',null,
@@ -26640,6 +26656,42 @@ function AdminPanel({sb,onLogout}){
                     c.status==="available"&&h('button',{onClick:()=>revokeCode(c.code),disabled:busy,style:{padding:"4px 8px",borderRadius:"var(--radius-sm)",fontSize:10,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid var(--red)",background:"rgba(239,68,68,0.1)",color:"var(--red)"}},"Anular")
                   );
                 })
+              )
+      ),
+
+      tab==="ops"&&h('div',null,
+        // Super-admins
+        h('div',{style:{padding:"14px",borderRadius:"var(--radius)",border:"1px solid var(--border)",background:"var(--surface)",marginBottom:16}},
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:6}},"Administradores"),
+          h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:10,lineHeight:1.4}},
+            "Cuentas con acceso a este panel. La persona debe crear su cuenta primero, luego la agregas por correo."),
+          h('div',{style:{display:"flex",flexDirection:"column",gap:6,marginBottom:12}},
+            (admins||[]).map(a=>h('div',{key:a.user_id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)",background:"var(--surface2)"}},
+              h('div',{style:{fontSize:15}},"🛠"),
+              h('div',{style:{flex:1,minWidth:0,fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},a.email||a.user_id),
+              h('button',{onClick:()=>removeAdmin(a.user_id),disabled:busy,style:{padding:"4px 8px",borderRadius:"var(--radius-sm)",fontSize:10,fontWeight:700,cursor:busy?"default":"pointer",border:"1px solid var(--red)",background:"rgba(239,68,68,0.1)",color:"var(--red)"}},"Quitar")
+            ))
+          ),
+          h('div',{style:{display:"flex",gap:8}},
+            h('input',{type:"email",value:newAdminEmail,onChange:e=>{setNewAdminEmail(e.target.value);setAdminMsg("");},placeholder:"correo@ejemplo.com",style:{flex:1,fontSize:13}}),
+            h('button',{onClick:addAdmin,disabled:busy,style:{padding:"0 16px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:busy?"default":"pointer",border:"none",background:"var(--accent)",color:"#fff",whiteSpace:"nowrap"}},"Agregar")
+          ),
+          adminMsg&&h('div',{style:{fontSize:11,color:"var(--red)",marginTop:8}},adminMsg)
+        ),
+        // Audit log
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:8}},"Registro del panel"),
+        audit===null
+          ? h('div',{style:{fontSize:13,color:"var(--text3)"}},"Cargando…")
+          : audit.length===0
+            ? h('div',{style:{fontSize:13,color:"var(--text3)",padding:"16px",textAlign:"center",border:"1px solid var(--border)",borderRadius:"var(--radius)"}},"Sin actividad todavía.")
+            : h('div',{style:{display:"flex",flexDirection:"column",gap:6}},
+                audit.map((e,i)=>h('div',{key:i,style:{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)",background:"var(--surface)"}},
+                  h('div',{style:{flex:1,minWidth:0}},
+                    h('div',{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},e.action+(e.detail?": "+e.detail:"")),
+                    h('div',{style:{fontSize:10,color:"var(--text3)",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},e.actor_email||"—")
+                  ),
+                  h('div',{style:{fontSize:10,color:"var(--text3)",whiteSpace:"nowrap"}},fmtDate(e.created_at))
+                ))
               )
       ),
 
