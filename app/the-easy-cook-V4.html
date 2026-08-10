@@ -147,6 +147,20 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
   .desktop-two-col{display:block!important;}
   .dt-col-desktop{display:none!important;}
   .pin-login-inner{width:100%;max-width:400px;}
+
+  /* ── Mobile readability & tap-target layer (desktop unaffected: these
+        classes have NO rules ≥769px, so they're inert on wide screens) ── */
+  /* Comfortable tap target for compact inline action buttons */
+  .ec-tap{min-height:40px!important;display:inline-flex!important;align-items:center;justify-content:center;}
+  /* Readability floor: lift the smallest informational text so it's legible
+     on a phone. Applied opt-in to secondary lines that were 9–10px. */
+  .ec-legible{font-size:12px!important;line-height:1.45;}
+  .ec-legible-sm{font-size:11px!important;}
+  /* Global type floor: any inline 9px/10px text (React serializes fontSize
+     as "font-size: Npx") is lifted to 11px on phones only. Verified inert on
+     desktop and free of false matches (11px/100px unaffected). */
+  [style*="font-size: 9px"],
+  [style*="font-size: 10px"]{font-size:11px!important;}
 }
 @media(min-width:769px){
   /* Hide mobile-only topbar buttons — sidebar handles them */
@@ -17406,9 +17420,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.4";
+const APP_VERSION = "4.14.5";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.5", date:"Ago 2026", notes:"Lectura más cómoda en el celular: el texto más pequeño (9–10px) ahora se muestra un poco más grande para que se lea mejor, y los botones de acción (Merma, Editar, etc.) tienen un área de toque más amplia para no fallar el dedo. En pantalla grande todo queda exactamente igual que antes."},
   {v:"4.14.4", date:"Ago 2026", notes:"Navegación más cómoda en el celular: la barra inferior ahora muestra los accesos del día a día (Inicio, Ventas, Stock, Recetas) y agrupa el resto en un botón 'Más', en vez de apretar 9 iconos diminutos. Las pestañas dentro de las secciones ya no se encogen: se deslizan de lado cuando no entran. En pantalla grande todo se ve igual que antes."},
   {v:"4.14.3", date:"Ago 2026", notes:"Ajustes del panel del proveedor (interno): ahora se pueden gestionar los administradores del panel (agregar por correo / quitar, sin poder quitarse uno mismo) desde una pestaña 'Ajustes', y hay un registro de las acciones del panel (quién pausó, cobró, generó códigos, etc.)."},
   {v:"4.14.2", date:"Ago 2026", notes:"Monitoreo de actividad de clientes (panel del proveedor, interno): cada restaurante muestra hace cuánto tuvo actividad (verde/amarillo/rojo según los días inactivo), y hay un contador de restaurantes inactivos, para detectar a tiempo cuentas que se están enfriando. Solo usa fechas de actividad, sin acceder a los datos del cliente."},
@@ -17941,7 +17956,7 @@ function Btn({children,onClick,variant="primary",style,disabled,size="md"}){
     success:{background:"rgba(34,197,94,0.15)",color:"var(--green)",border:"1px solid rgba(34,197,94,0.3)"},
   };
   return h('button',{
-    disabled,onClick,
+    disabled,onClick,className:"ec-tap",
     style:{border:"none",borderRadius:"var(--radius-sm)",fontWeight:500,fontFamily:"var(--sans)",
       display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,
       padding:pad,fontSize:fs,opacity:disabled?0.45:1,...variants[variant],...style}
@@ -19526,7 +19541,7 @@ function Inventory({data,setData,toast,logActivity}){
                   h(Badge,{color:"gray"},p.category)
                 ),
                 h('div',{style:{fontSize:12,color:"var(--text2)",marginBottom:5}},`${fmtNum(p.stock)} ${p.unit} · min ${fmtNum(p.minStock)} ${p.unit}`),
-                (()=>{const sup=(data.suppliers||[]).find(s=>s.id===p.supplier);return sup?h('div',{style:{fontSize:10,color:"var(--text3)",marginBottom:5}},`🏪 ${sup.name}`):null;})(),
+                (()=>{const sup=(data.suppliers||[]).find(s=>s.id===p.supplier);return sup?h('div',{className:"ec-legible-sm",style:{fontSize:10,color:"var(--text3)",marginBottom:5}},`🏪 ${sup.name}`):null;})(),
                 h(StockBar,{pct:stockPct}),
               ),
               // Desktop: extra metric columns
@@ -19541,7 +19556,7 @@ function Inventory({data,setData,toast,logActivity}){
                   h('div',{style:{fontSize:14,fontWeight:600,color:"var(--accent)"}},fmtCost(usable)),
                   h('div',{style:{fontSize:11,color:"var(--text3)"}},`/${p.unit} usable`)
                 ),
-                h('button',{onClick:e=>openWastage(p,e),style:{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:500,color:"var(--red)",whiteSpace:"nowrap"}},"🗑 Merma")
+                h('button',{onClick:e=>openWastage(p,e),className:"ec-tap",style:{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:500,color:"var(--red)",whiteSpace:"nowrap"}},"🗑 Merma")
               )
             )
           );
@@ -19950,8 +19965,8 @@ function Recipes({data,setData,toast,notify=()=>{}}){
                     h(Badge,{color:cp>getFCTWarn(data)?"red":cp>getFCT(data)?"yellow":"green"},fmtPct(cp)),
                     h("div",{style:{fontSize:10,color:"var(--text3)"}},"costo real"),
                     _listSettings.igvMode!=="ninguno"&&h("div",{style:{fontSize:10,color:"var(--text3)",opacity:0.7}},fmtPct(cpGross)+" carta"),
-                    h("button",{onClick:e=>openEditRecipe(r,e),style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar"),
-                    (()=>{const av=dishAvailability(r,data.orders||[],data.orderLines||[]);let lbl,col,bg,bd;if(av.soldOut){lbl="\ud83d\udeab Agotado";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited&&av.remaining<=0){lbl="\ud83d\udeab Sin m\u00e1s";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited){lbl="\ud83d\udd22 Quedan "+av.remaining;col="var(--yellow)";bg="rgba(234,179,8,0.15)";bd="var(--yellow)";}else{lbl="\ud83c\udf7d Disponible";col="var(--text2)";bg="var(--surface2)";bd="var(--border)";}return h("button",{onClick:e=>openAvail(r,e),style:{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,cursor:"pointer",border:"1px solid "+bd,background:bg,color:col}},lbl);})()
+                    h("button",{onClick:e=>openEditRecipe(r,e),className:"ec-tap",style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar"),
+                    (()=>{const av=dishAvailability(r,data.orders||[],data.orderLines||[]);let lbl,col,bg,bd;if(av.soldOut){lbl="\ud83d\udeab Agotado";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited&&av.remaining<=0){lbl="\ud83d\udeab Sin m\u00e1s";col="var(--red)";bg="rgba(239,68,68,0.18)";bd="var(--red)";}else if(av.limited){lbl="\ud83d\udd22 Quedan "+av.remaining;col="var(--yellow)";bg="rgba(234,179,8,0.15)";bd="var(--yellow)";}else{lbl="\ud83c\udf7d Disponible";col="var(--text2)";bg="var(--surface2)";bd="var(--border)";}return h("button",{onClick:e=>openAvail(r,e),className:"ec-tap",style:{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,cursor:"pointer",border:"1px solid "+bd,background:bg,color:col}},lbl);})()
                   )
                 )
               );
@@ -20203,7 +20218,7 @@ function Recipes({data,setData,toast,notify=()=>{}}){
                 h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}},
                   h("div",{style:{fontSize:15,fontWeight:700,color:"var(--accent)"}},fmtCost(bc)),
                   h("div",{style:{fontSize:11,color:"var(--text3)"}},"por batch"),
-                  h("button",{onClick:e=>openEditSR(sr,e),style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar")
+                  h("button",{onClick:e=>openEditSR(sr,e),className:"ec-tap",style:{fontSize:11,padding:"2px 8px",borderRadius:6,background:"var(--surface2)",border:"1px solid var(--border)",color:"var(--text2)",cursor:"pointer"}},"\u270f\ufe0f Editar")
                 )
               )
             );
