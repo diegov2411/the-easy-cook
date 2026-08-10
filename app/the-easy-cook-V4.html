@@ -40,6 +40,9 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+@keyframes ecSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+/* Bottom-sheet grab handle — hidden by default (desktop); shown only on phones */
+.ec-sheet-handle{display:none;}
 .slide-up{animation:slideUp .28s ease both}
 .fade-in{animation:fadeIn .2s ease both}
 .ec-card-clickable{transition:border-color .15s ease, transform .15s ease}
@@ -164,6 +167,20 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
   /* Dashboard hero KPIs: the 2×2 mobile layout has room, so make the headline
      numbers bigger. Desktop keeps the inline 14px (this rule is phone-only). */
   .kpi-hero-val{font-size:20px!important;}
+
+  /* ── Bottom-sheet modals (phones only) ──────────────────────────────────
+     Centered dialogs are cramped on a phone. On mobile, opt-in modals slide
+     up from the bottom edge, full-width with a rounded top and a grab handle.
+     Desktop keeps the centered card (these rules don't exist ≥769px). */
+  .ec-modal-overlay{align-items:flex-end!important;padding:0!important;}
+  .ec-modal-sheet{
+    max-width:100%!important;width:100%!important;
+    border-radius:20px 20px 0 0!important;max-height:92vh!important;
+    animation:ecSheetUp .28s cubic-bezier(.2,.8,.2,1) both!important;
+    padding-bottom:calc(1.25rem + env(safe-area-inset-bottom,0px))!important;
+  }
+  .ec-sheet-handle{display:block!important;width:38px;height:4px;border-radius:2px;
+    background:var(--border2);margin:0 auto 12px;flex-shrink:0;}
 }
 @media(min-width:769px){
   /* Hide mobile-only topbar buttons — sidebar handles them */
@@ -17423,9 +17440,10 @@ window.ReactDOM=module.exports;
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.6";
+const APP_VERSION = "4.14.7";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.7", date:"Ago 2026", notes:"Ventanas de edición más cómodas en el celular: al agregar o editar (ingredientes, recetas, facturación) el formulario ahora sube desde abajo ocupando todo el ancho, con una barrita para indicar que se desliza — más fácil de alcanzar con el pulgar. Los números del tablero se alinean mejor y el margen se pinta en rojo si es negativo. En pantalla grande las ventanas siguen centradas como antes."},
   {v:"4.14.6", date:"Ago 2026", notes:"Tablero principal más claro en el celular: las cifras de hoy (Ventas, % Costo, Margen, Pedidos) ahora se muestran en una cuadrícula 2×2 con números grandes y fáciles de leer de un vistazo. En pantalla grande se mantiene la fila de 4 como antes."},
   {v:"4.14.5", date:"Ago 2026", notes:"Lectura más cómoda en el celular: el texto más pequeño (9–10px) ahora se muestra un poco más grande para que se lea mejor, y los botones de acción (Merma, Editar, etc.) tienen un área de toque más amplia para no fallar el dedo. En pantalla grande todo queda exactamente igual que antes."},
   {v:"4.14.4", date:"Ago 2026", notes:"Navegación más cómoda en el celular: la barra inferior ahora muestra los accesos del día a día (Inicio, Ventas, Stock, Recetas) y agrupa el resto en un botón 'Más', en vez de apretar 9 iconos diminutos. Las pestañas dentro de las secciones ya no se encogen: se deslizan de lado cuando no entran. En pantalla grande todo se ve igual que antes."},
@@ -18049,15 +18067,16 @@ function Modal({open,onClose,title,children}){
 
   if(!open)return null;
   return ReactDOM.createPortal(
-    h('div',{className:"fade-in",onClick:onClose,style:{
+    h('div',{className:"fade-in ec-modal-overlay",onClick:onClose,style:{
       position:"fixed",top:0,left:0,right:0,bottom:0,
       background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)",
       zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",
       padding:"16px",overflow:"hidden"}},
-      h('div',{ref,className:"slide-up modal-inner",onClick:e=>e.stopPropagation(),style:{
+      h('div',{ref,className:"slide-up modal-inner ec-modal-sheet",onClick:e=>e.stopPropagation(),style:{
         background:"var(--surface)",borderRadius:20,border:"1px solid var(--border2)",
         width:"100%",maxWidth:440,maxHeight:"calc(100vh - 32px)",overflowY:"auto",
         padding:"1.5rem",flexShrink:0}},
+        h('div',{className:"ec-sheet-handle"}),
         h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}},
           h('h3',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:600}},title),
           h('button',{onClick:onClose,style:{background:"var(--surface2)",border:"1px solid var(--border2)",
@@ -18744,7 +18763,7 @@ function Dashboard({data,setPage,currentUser}){
             label:"Margen",
             value:fmtCost(todayRevenue-todayFoodCost),
             sub:hasDataToday?fmtPct(1-costPct)+" mg":null,
-            color:"var(--green)",
+            color:(todayRevenue-todayFoodCost)>=0?"var(--green)":"var(--red)",
             onClick:()=>setPage("reports")
           },
           {
@@ -18761,7 +18780,7 @@ function Dashboard({data,setPage,currentUser}){
             background:"var(--surface)",
             transition:"background .15s"
           }},
-          h('div',{className:"kpi-hero-val",style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color}},k.value),
+          h('div',{className:"kpi-hero-val",style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color,fontVariantNumeric:"tabular-nums"}},k.value),
           h('div',{style:{fontSize:9,color:"var(--text3)",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}},k.label),
           k.sub&&h('div',{style:{fontSize:9,color:"var(--text3)",opacity:0.7,marginTop:1}},k.sub)
         ))
@@ -26762,8 +26781,9 @@ function AdminPanel({sb,onLogout}){
       ),
 
       // Billing edit modal
-      billModal&&h('div',{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"},onClick:()=>setBillModal(null)},
-        h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:400,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"18px",maxHeight:"90vh",overflowY:"auto"}},
+      billModal&&h('div',{className:"ec-modal-overlay",style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"},onClick:()=>setBillModal(null)},
+        h('div',{className:"ec-modal-sheet",onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:400,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"18px",maxHeight:"90vh",overflowY:"auto"}},
+          h('div',{className:"ec-sheet-handle"}),
           h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:700,marginBottom:2}},"Facturación"),
           h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},billModal.name||"(sin nombre)"),
           h(FormRow,{label:"Plan"},h('input',{value:bf.plan,onChange:e=>setBf(f=>({...f,plan:e.target.value})),placeholder:"ej. Básico"})),
