@@ -41,6 +41,7 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
 @keyframes ecSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes ecPulse{0%,100%{opacity:1}50%{opacity:.3}}
 /* Bottom-sheet grab handle — hidden by default (desktop); shown only on phones */
 .ec-sheet-handle{display:none;}
 .slide-up{animation:slideUp .28s ease both}
@@ -566,9 +567,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.14.8";
+const APP_VERSION = "4.14.9";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.14.9", date:"Ago 2026", notes:"Ahora sabes si estás conectado: arriba a la derecha hay un indicador — punto verde cuando todo está guardado en la nube, 'Sincronizando…' mientras sube, y 'Sin conexión' si se cae el internet (tus cambios se siguen guardando en el equipo). Apenas vuelve la conexión, la app se reconecta sola, sube lo pendiente y baja lo que otros cambiaron mientras tanto — sin que tengas que hacer nada."},
   {v:"4.14.8", date:"Ago 2026", notes:"Mejora técnica de confiabilidad: la app ahora es autónoma — trae todo lo que necesita para funcionar dentro del mismo archivo, en vez de pedir piezas a servidores externos al abrir. Esto la hace más rápida y estable, y prepara el terreno para poder instalarla como app en el celular más adelante."},
   {v:"4.14.7", date:"Ago 2026", notes:"Ventanas de edición más cómodas en el celular: al agregar o editar (ingredientes, recetas, facturación) el formulario ahora sube desde abajo ocupando todo el ancho, con una barrita para indicar que se desliza — más fácil de alcanzar con el pulgar. Los números del tablero se alinean mejor y el margen se pinta en rojo si es negativo. En pantalla grande las ventanas siguen centradas como antes."},
   {v:"4.14.6", date:"Ago 2026", notes:"Tablero principal más claro en el celular: las cifras de hoy (Ventas, % Costo, Margen, Pedidos) ahora se muestran en una cuadrícula 2×2 con números grandes y fáciles de leer de un vistazo. En pantalla grande se mantiene la fila de 4 como antes."},
@@ -9340,6 +9342,8 @@ function App(){
   });
   const [toastMsg,setToastMsg]=useState(null);
   const [currentUser,setCurrentUser]=useState(null);
+  // Live cloud connection status for the top-bar pill: synced | syncing | offline.
+  const [syncStatus,setSyncStatus]=useState(cloud&&cloud.online===false?"offline":"synced");
   const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
 
   // ── Cloud sync engine ────────────────────────────────────────────────────
@@ -9355,6 +9359,9 @@ function App(){
   const syncingRef=useRef(false);
   const scheduleRef=useRef(null);                               // debounced flush
   const retryRef=useRef(null);                                  // offline backoff timer
+  const resyncingRef=useRef(false);                             // guards overlapping reconnect resyncs
+  const wasDisconnectedRef=useRef(false);                       // realtime dropped → resync on rejoin
+  const resyncRef=useRef(null);                                 // latest resync() for event handlers
   const currentUserRef=useRef(currentUser);                     // latest PIN user (for logging + realtime)
   useEffect(()=>{ currentUserRef.current=currentUser; },[currentUser]);
 
@@ -9387,6 +9394,7 @@ function App(){
     if(!cloud||!cloud.restaurantId||!cloud.saveCollection) return;
     if(syncingRef.current) return;
     syncingRef.current=true;
+    if(dirtyRef.current.size>0) setSyncStatus("syncing");
     let networkError=false;
     try{
       while(dirtyRef.current.size>0){
@@ -9409,6 +9417,8 @@ function App(){
       }
     }finally{
       syncingRef.current=false;
+      if(networkError) setSyncStatus("offline");
+      else if(dirtyRef.current.size===0) setSyncStatus("synced");
       if(dirtyRef.current.size>0){
         if(networkError){                                          // back off while offline
           if(!retryRef.current) retryRef.current=setTimeout(()=>{ retryRef.current=null; flushSync(); },5000);
@@ -9416,6 +9426,45 @@ function App(){
       }
     }
   },[cloud,foldIn,scheduleSync]);
+
+  // Reconnect resync: pull the latest from the cloud (so we catch changes other
+  // devices made while we were offline), keep our own unsynced edits (including
+  // any that survived an offline reload — detected by diffing local vs server),
+  // then push everything pending. Called on network/realtime reconnect.
+  const resync=useCallback(async()=>{
+    if(!cloud||!cloud.restaurantId||!cloud.fetchAll) return;
+    if(resyncingRef.current) return;
+    resyncingRef.current=true;
+    setSyncStatus("syncing");
+    try{
+      const fetched=await cloud.fetchAll(cloud.restaurantId);      // {data, versions}
+      const sdata=(fetched&&fetched.data)||{}, sver=(fetched&&fetched.versions)||{};
+      for(const name of COLLECTION_KEYS){
+        const serverVal=(name in sdata)?sdata[name]:INIT[name];
+        // local-only edits not yet flagged dirty (survived an offline reload) → flag so we merge+push
+        if(!dirtyRef.current.has(name)){
+          try{ if(JSON.stringify(dataRef.current[name])!==JSON.stringify(serverVal)) dirtyRef.current.add(name); }catch(e){}
+        }
+        versionsRef.current[name]=sver[name];
+        foldIn(name, serverVal, dirtyRef.current.has(name));       // dirty → union (keep local); else take server
+      }
+    }catch(e){ setSyncStatus("offline"); resyncingRef.current=false; return; }
+    resyncingRef.current=false;
+    flushSync();                                                    // push anything pending (updates the pill)
+  },[cloud,foldIn,flushSync]);
+  useEffect(()=>{ resyncRef.current=resync; },[resync]);
+
+  // Connection watcher: the moment the browser regains/loses connectivity, react
+  // instantly (instead of only when the 5s retry happens to succeed).
+  useEffect(()=>{
+    if(!cloud||!cloud.restaurantId) return;
+    const goOnline=()=>{ if(resyncRef.current) resyncRef.current(); };
+    const goOffline=()=>{ setSyncStatus("offline"); };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    if(typeof navigator!=="undefined" && navigator.onLine===false) setSyncStatus("offline");
+    return ()=>{ window.removeEventListener("online",goOnline); window.removeEventListener("offline",goOffline); };
+  },[cloud]);
 
   useEffect(()=>{ scheduleRef.current=debounce(flushSync,1200); },[flushSync]);
 
@@ -9468,7 +9517,16 @@ function App(){
           foldIn(row.name, row.data, false);
           if(dirtyRef.current.has(row.name)) scheduleSync();       // push our merged version back
         })
-      .subscribe();
+      // The realtime socket doubles as a live Supabase heartbeat: a dropped/errored
+      // channel means we're cut off; a fresh SUBSCRIBED after a drop triggers a resync.
+      .subscribe((status)=>{
+        if(status==="SUBSCRIBED"){
+          if(wasDisconnectedRef.current){ wasDisconnectedRef.current=false; if(resyncRef.current) resyncRef.current(); }
+          else setSyncStatus(s=>s==="offline"?"synced":s);
+        }else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"||status==="CLOSED"){
+          wasDisconnectedRef.current=true; setSyncStatus("offline");
+        }
+      });
     return ()=>{ try{cloud.sb.removeChannel(ch);}catch(e){} };
   },[cloud,foldIn,scheduleSync]);
 
@@ -9590,6 +9648,23 @@ function App(){
             h('span',{style:{fontFamily:"var(--sora)",fontSize:17,fontWeight:700}},"The Easy Cook")
           ),
         h('div',{style:{display:"flex",gap:8,alignItems:"center"}},
+
+          // Cloud sync status pill (cloud mode only). Green dot alone when all is
+          // well; expands with a label when syncing or offline so staff can tell.
+          cloud&&cloud.restaurantId&&(()=>{
+            const S={
+              synced:{c:"var(--green)",t:"",tip:"Sincronizado con la nube"},
+              syncing:{c:"var(--blue)",t:"Sincronizando…",tip:"Guardando en la nube…"},
+              offline:{c:"var(--yellow)",t:"Sin conexión",tip:"Sin conexión — tus cambios se guardan aquí y se sincronizarán al reconectar"}
+            }[syncStatus]||{c:"var(--green)",t:"",tip:""};
+            return h('div',{title:S.tip,style:{display:"flex",alignItems:"center",gap:5,
+              padding:S.t?"3px 10px":"4px",borderRadius:20,
+              background:S.t?"var(--surface2)":"transparent",border:S.t?"1px solid var(--border2)":"none"}},
+              h('div',{style:{width:8,height:8,borderRadius:"50%",background:S.c,flexShrink:0,
+                animation:syncStatus==="syncing"?"ecPulse 1s ease-in-out infinite":"none"}}),
+              S.t&&h('span',{style:{fontSize:11,fontWeight:600,color:"var(--text2)",whiteSpace:"nowrap"}},S.t)
+            );
+          })(),
 
           // Current user chip — hide on desktop (shown in sidebar)
           h('button',{onClick:()=>setPage("activitylog"),className:"mobile-user-chip",style:{
@@ -10151,6 +10226,7 @@ function CloudRoot(){
         userId:(session.user&&session.user.id)||null,
         accessToken:(session&&session.access_token)||null, online,
         initialData, initialVersions, teamCode, saveCollection,
+        fetchAll:cloudFetchAll,                 // re-pull all collections on reconnect
         // Record a notable change (owner gets a live toast). Fire-and-forget.
         logEvent:(kind,message,actorName)=>sb.rpc("log_event",{p_kind:kind,p_message:message,p_actor_name:actorName||null}),
         // One-time "upload my local data" — push every collection, merging on conflict.
