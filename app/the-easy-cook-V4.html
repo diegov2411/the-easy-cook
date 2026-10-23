@@ -10041,10 +10041,18 @@ function AuthScreen({reload}){
     if(form.password.length<6){setError("La contraseña debe tener al menos 6 caracteres");return;}
     if(!form.bizName.trim()){setError("Ingresa el nombre del restaurante");return;}
     setBusy(true);setError("");
-    const {data,error}=await sb.auth.signUp({email:form.email.trim(),password:form.password});
+    // Stash the restaurant info in the user's auth metadata. With email
+    // confirmation ON there's no session yet, so the restaurant is created on
+    // the first authenticated load instead (CloudRoot reads these back).
+    const {data,error}=await sb.auth.signUp({email:form.email.trim(),password:form.password,
+      options:{
+        emailRedirectTo: window.location.href.split("#")[0],
+        data:{ pending_biz_name:form.bizName.trim(), pending_ruc:form.ruc.trim()||null, pending_act_code:form.actCode.trim() }
+      }});
     if(error){setError(traducirAuthError(error.message));setBusy(false);return;}
     if(!data.session){
-      setNote("Te enviamos un correo para confirmar la cuenta. Confírmalo y luego inicia sesión.");
+      // Confirmation ON → email sent; restaurant gets created when they confirm + log in.
+      setNote("Te enviamos un correo para confirmar tu cuenta. Ábrelo, confirma, e inicia sesión — tu restaurante quedará listo automáticamente.");
       setBusy(false);setMode("login");return;
     }
     const {error:rpcErr}=await sb.rpc("create_my_restaurant",
@@ -10195,6 +10203,22 @@ function CloudRoot(){
         try{ const c=localStorage.getItem(MKEY); if(c) membership=JSON.parse(c); }catch(e2){}
       }
       if(cancel)return;
+      // Just confirmed a new signup? With email confirmation ON the restaurant
+      // couldn't be created at signup (no session then) — the info was stashed in
+      // user metadata. Create it now, on this first authenticated load.
+      if(!membership && online){
+        const meta=(session.user&&session.user.user_metadata)||{};
+        if(meta.pending_act_code && meta.pending_biz_name){
+          try{
+            await sb.rpc("create_my_restaurant",{p_name:meta.pending_biz_name,p_ruc:meta.pending_ruc||null,p_code:meta.pending_act_code});
+            try{ await sb.auth.updateUser({data:{pending_act_code:null,pending_biz_name:null,pending_ruc:null}}); }catch(e){} // clear so we never retry
+            const {data:m2}=await sb.rpc("my_membership");
+            membership=(m2&&m2[0])||null;
+            try{ if(membership) localStorage.setItem(MKEY,JSON.stringify(membership)); }catch(e){}
+          }catch(e){ /* code invalid/used → fall through to the no-restaurant path */ }
+          if(cancel)return;
+        }
+      }
       if(!membership){
         // No restaurant → maybe a vendor admin login (owns no data → sees the admin panel).
         let admin=false;
