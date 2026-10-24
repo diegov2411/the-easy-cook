@@ -13,3 +13,6 @@ Desktop.ini
 *.bak
 *.tmp
 *~
+
+# Archivos de prueba locales (harness que genera Claude al verificar)
+app/__*.html
