@@ -567,9 +567,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.15.0";
+const APP_VERSION = "4.16.0";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.16.0", date:"Nov 2026", notes:"¡Nueva Estación de ventas para mozos! Pensada para un tablet: el mozo elige la mesa, toca los platos de la carta (por categorías, con buscador visual y aviso de agotados) y envía la comanda a la cocina — sin papel y sin doble digitación. Nuevo rol 'Mozo' que abre solo la estación de ventas y nada más (ideal para un tablet de salón). Y en Inicio hay accesos directos: el cajero puede convertir su equipo en estación de ventas y el chef en estación de cocina, con un toque, y volver al panel cuando quiera."},
   {v:"4.15.0", date:"Nov 2026", notes:"¡Nueva pantalla Cocina (comandas)! Reemplaza la impresora de comandas, todo dentro de la app. El cajero arma el pedido y toca '🔔 Enviar a cocina'; la cocina ve las comandas al instante en una pantalla grande pensada para tablet, marca cada plato listo y cierra el pedido con un toque. Se separan en 'Pendientes' y 'Listos', con un cronómetro por mesa (verde/amarillo/rojo según cuánto esperan). Sin doble digitación: la comanda es el mismo pedido. Botones y letras grandes para usarla fácil en la cocina."},
   {v:"4.14.9", date:"Ago 2026", notes:"Ahora sabes si estás conectado: arriba a la derecha hay un indicador — punto verde cuando todo está guardado en la nube, 'Sincronizando…' mientras sube, y 'Sin conexión' si se cae el internet (tus cambios se siguen guardando en el equipo). Apenas vuelve la conexión, la app se reconecta sola, sube lo pendiente y baja lo que otros cambiaron mientras tanto — sin que tengas que hacer nada."},
   {v:"4.14.8", date:"Ago 2026", notes:"Mejora técnica de confiabilidad: la app ahora es autónoma — trae todo lo que necesita para funcionar dentro del mismo archivo, en vez de pedir piezas a servidores externos al abrir. Esto la hace más rápida y estable, y prepara el terreno para poder instalarla como app en el celular más adelante."},
@@ -913,16 +914,18 @@ const ROLES = {
   chef:    {label:"Chef",       color:"#3b82f6", bg:"rgba(59,130,246,0.15)",  icon:"👨‍🍳", level:3},
   headboh: {label:"Jefe Salón/Bar",color:"#ec4899", bg:"rgba(236,72,153,0.15)",  icon:"🍸", level:3},
   cashier: {label:"Cajero",     color:"#22c55e", bg:"rgba(34,197,94,0.15)",   icon:"💰",  level:2},
+  mozo:    {label:"Mozo",       color:"#14b8a6", bg:"rgba(20,184,166,0.15)",  icon:"🙋",  level:2},
   viewer:  {label:"Visor",      color:"#9ca3af", bg:"rgba(156,163,175,0.15)", icon:"👁",   level:1},
 };
 
 // Permission matrix: what each role CAN do
 const PERMS = {
-  owner:   {editInventory:true,  editRecipes:true,  viewReports:true,  editSales:true,  editPurchases:true,  manageUsers:true,  manageSettings:true,  viewKitchen:true },
-  chef:    {editInventory:true,  editRecipes:true,  viewReports:false, editSales:false, editPurchases:true,  manageUsers:false, manageSettings:false, viewKitchen:true },
-  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true },
-  cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true },
-  viewer:  {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false},
+  owner:   {editInventory:true,  editRecipes:true,  viewReports:true,  editSales:true,  editPurchases:true,  manageUsers:true,  manageSettings:true,  viewKitchen:true,  takeOrders:true },
+  chef:    {editInventory:true,  editRecipes:true,  viewReports:false, editSales:false, editPurchases:true,  manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:false},
+  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
+  cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
+  mozo:    {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false, takeOrders:true },
+  viewer:  {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false, takeOrders:false},
 };
 
 function can(role, perm){ return !!(PERMS[role]&&PERMS[role][perm]); }
@@ -1726,8 +1729,11 @@ function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricing
 }
 
 
-function Dashboard({data,setPage,currentUser}){
+function Dashboard({data,setPage,currentUser,onStation}){
   const {products,recipes,bom,orders=[],orderLines=[],purchases=[],subBom=[],subRecipes=[],paymentRecons=[],wastageLog=[]}=data;
+  const _dashRole=currentUser?.role;
+  const _showSalesStation=onStation&&(_dashRole==="owner"||_dashRole==="cashier"||_dashRole==="headboh");
+  const _showKitchenStation=onStation&&(_dashRole==="owner"||_dashRole==="chef");
   const today_date=today();
   const closedToday=orders.filter(o=>o.date===today_date&&o.status==="closed");
   const todayRevenue=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
@@ -1827,6 +1833,16 @@ function Dashboard({data,setPage,currentUser}){
           borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:600,color:"var(--accent)"
         }},"Sin ventas hoy")
       )
+    ),
+
+    // ── Accesos a las estaciones (tablet) ─────────────────────────────────────
+    (_showSalesStation||_showKitchenStation)&&h('div',{style:{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}},
+      _showSalesStation&&h('button',{onClick:()=>onStation("order"),style:{flex:"1 1 180px",minHeight:64,borderRadius:14,border:"none",cursor:"pointer",
+        background:"var(--accent)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"var(--sora)",fontSize:16,fontWeight:800}},
+        h('span',{style:{fontSize:22}},"🧾")," Estación de ventas"),
+      _showKitchenStation&&h('button',{onClick:()=>onStation("kitchen"),style:{flex:"1 1 180px",minHeight:64,borderRadius:14,cursor:"pointer",
+        background:"var(--surface)",border:"1px solid var(--border2)",color:"var(--text)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"var(--sora)",fontSize:16,fontWeight:800}},
+        h('span',{style:{fontSize:22}},"🔔")," Estación de cocina")
     ),
 
     // ── ¿QUÉ HAGO HOY? (checklist accionable) ─────────────────────────────────
@@ -6243,11 +6259,166 @@ function MenuEngineering({data}){
   );
 }
 
+// ─── ESTACIÓN DE VENTAS · Toma de pedidos para mozos (tablet) ─────────────────
+// Pantalla kiosko: elige mesa → toca platos de la carta → envía la comanda a
+// cocina. Trabaja sobre los mismos pedidos/orderLines (sin doble digitación).
+function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
+  const recipes=(data.recipes||[]), recipeCategories=(data.recipeCategories||[]);
+  const orders=(data.orders||[]), lines=(data.orderLines||[]);
+  const [tableNum,setTableNum]=useState(null);
+  const [cat,setCat]=useState("all");
+  const [showCart,setShowCart]=useState(false);
+  const [noteLine,setNoteLine]=useState(null);
+  const [noteText,setNoteText]=useState("");
+
+  const order = tableNum!=null ? orders.find(o=>o.status==="open"&&o.tableNum===tableNum) : null;
+  const myLines = order ? lines.filter(l=>l.orderId===order.id) : [];
+  const recById=id=>recipes.find(x=>x.id===id);
+  const recName=id=>{const r=recById(id);return r?r.name:id;};
+  const recPrice=id=>{const r=recById(id);return r?(r.price||0):0;};
+  const cartTotal=myLines.reduce((s,l)=>s+recPrice(l.recipeId)*l.qty,0);
+  const unsent=myLines.filter(l=>!l.kds);
+  const nextCode=()=>{const nums=orders.map(o=>parseInt(String(o.code||"").replace(/\D/g,""))||0);return "#"+String((nums.length?Math.max(...nums):0)+1).padStart(3,"0");};
+
+  const openByTable={}; orders.filter(o=>o.status==="open").forEach(o=>{openByTable[o.tableNum]=o;});
+  const maxTable=Math.max(12,...Object.keys(openByTable).map(Number),0);
+  const tableReady=o=>{const ol=lines.filter(l=>l.orderId===o.id&&l.kds);return ol.length>0&&ol.every(l=>l.kds==="ready");};
+
+  const addDish=(r)=>setData(d=>{
+    let os=d.orders, o=os.find(x=>x.status==="open"&&x.tableNum===tableNum);
+    if(!o){ o={id:"ORD"+uid(),code:nextCode(),tableNum,pax:0,date:today(),waiter:currentUser?.name||"",status:"open"}; os=[...os,o]; }
+    const ex=d.orderLines.find(l=>l.orderId===o.id&&l.recipeId===r.id&&!l.kds&&!l.note);
+    const ols = ex ? d.orderLines.map(l=>l===ex?{...l,qty:l.qty+1}:l)
+                   : [...d.orderLines,{id:"OL"+uid(),orderId:o.id,recipeId:r.id,qty:1,note:""}];
+    return {...d,orders:os,orderLines:ols};
+  });
+  const changeQty=(l,delta)=>setData(d=>{
+    const nq=l.qty+delta;
+    return nq<=0 ? {...d,orderLines:d.orderLines.filter(x=>x.id!==l.id)}
+                 : {...d,orderLines:d.orderLines.map(x=>x.id===l.id?{...x,qty:nq}:x)};
+  });
+  const saveNote=()=>{ setData(d=>({...d,orderLines:d.orderLines.map(x=>x.id===noteLine?{...x,note:noteText.trim()}:x)})); setNoteLine(null); setNoteText(""); };
+  const sendToKitchen=()=>{
+    if(!order) return; const ts=Date.now();
+    setData(d=>({...d,orderLines:d.orderLines.map(l=>(l.orderId===order.id&&!l.kds)?{...l,kds:"pending",sentAt:ts}:l)}));
+    toast("Comanda enviada a cocina 🔔","success"); setShowCart(false);
+  };
+
+  const dishes=recipes.filter(r=>(cat==="all"||r.category===cat));
+  const backBtn={background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 16px",fontSize:16,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,flexShrink:0};
+  const step={width:44,height:44,borderRadius:10,border:"1px solid var(--border2)",background:"var(--surface2)",fontSize:22,fontWeight:800,color:"var(--text)",cursor:"pointer"};
+
+  return h(Fragment,null,
+    h('div',{style:{position:"fixed",inset:0,background:"var(--bg)",display:"flex",flexDirection:"column",zIndex:150}},
+      // ── Top bar ──
+      h('div',{style:{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--border2)",background:"var(--surface)",flexShrink:0}},
+        h('button',{onClick: tableNum!=null?()=>setTableNum(null):onExit, style:backBtn}, tableNum!=null?"‹ Mesas":(lockedMozo?"Salir":"‹ Volver")),
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:800,flex:1}}, tableNum!=null?("Mesa "+tableNum):"Estación de ventas"),
+        tableNum!=null&&h('div',{style:{textAlign:"right"}},
+          h('div',{style:{fontSize:11,color:"var(--text3)"}},"total"),
+          h('div',{style:{fontSize:18,fontWeight:800,fontFamily:"var(--sora)",color:"var(--accent)"}},fmtCost(cartTotal)))
+      ),
+      tableNum==null
+        // ── Mesas ──
+        ? h('div',{style:{flex:1,overflowY:"auto",padding:16}},
+            h('div',{style:{fontSize:15,color:"var(--text3)",marginBottom:12}},"Toca una mesa para tomar o continuar su pedido"),
+            h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:12}},
+              Array.from({length:maxTable},(_,i)=>i+1).map(n=>{
+                const o=openByTable[n], ready=o&&tableReady(o);
+                const bd=ready?"var(--green)":o?"var(--accent)":"var(--border2)";
+                return h('button',{key:n,onClick:()=>setTableNum(n),style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
+                  background:ready?"rgba(34,197,94,0.12)":o?"rgba(249,115,22,0.12)":"var(--surface)",
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}},
+                  h('span',{style:{fontFamily:"var(--sora)",fontSize:30,fontWeight:800}},n),
+                  h('span',{style:{fontSize:14,fontWeight:700,color:ready?"var(--green)":o?"var(--accent)":"var(--text3)"}}, ready?"Listo ✓":o?"Ocupada":"Libre"),
+                  o&&h('span',{style:{fontSize:12,color:"var(--text3)"}}, lines.filter(l=>l.orderId===o.id).length+" platos")
+                );
+              })
+            )
+          )
+        // ── Carta + comanda ──
+        : h(Fragment,null,
+            h('div',{className:"ec-tabs",style:{display:"flex",gap:8,overflowX:"auto",padding:"10px 16px",flexShrink:0,borderBottom:"1px solid var(--border)"}},
+              ["all",...recipeCategories].map(c=>h('button',{key:c,onClick:()=>setCat(c),style:{flexShrink:0,padding:"10px 16px",borderRadius:20,border:"none",fontSize:15,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",background:cat===c?"var(--accent)":"var(--surface2)",color:cat===c?"#fff":"var(--text2)"}}, c==="all"?"Todos":c))
+            ),
+            h('div',{style:{flex:1,overflowY:"auto",padding:16}},
+              dishes.length===0
+                ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"3rem",fontSize:16}},"No hay platos en esta categoría")
+                : h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12}},
+                    dishes.map(r=>{
+                      const av=dishAvailability(r,orders,lines), sold=av.soldOut||(av.limited&&av.remaining<=0);
+                      const inCart=myLines.filter(l=>l.recipeId===r.id).reduce((s,l)=>s+l.qty,0);
+                      return h('button',{key:r.id,disabled:sold,onClick:()=>addDish(r),style:{minHeight:96,borderRadius:14,border:"1px solid var(--border2)",
+                        background:sold?"var(--surface2)":"var(--surface)",cursor:sold?"not-allowed":"pointer",opacity:sold?0.5:1,
+                        padding:"12px",textAlign:"left",display:"flex",flexDirection:"column",justifyContent:"space-between",position:"relative"}},
+                        inCart>0&&h('span',{style:{position:"absolute",top:8,right:8,minWidth:24,height:24,borderRadius:12,background:"var(--accent)",color:"#fff",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 6px"}},inCart),
+                        h('span',{style:{fontSize:16,fontWeight:700,lineHeight:1.2}},r.name),
+                        h('span',{style:{fontSize:15,fontWeight:700,color:"var(--accent)",marginTop:6}}, sold?"Agotado":fmtCost(r.price||0))
+                      );
+                    })
+                  )
+            ),
+            // ── Cart bar ──
+            h('div',{style:{flexShrink:0,borderTop:"1px solid var(--border2)",background:"var(--surface)",padding:"12px 16px",display:"flex",gap:12,alignItems:"center",paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
+              h('button',{onClick:()=>setShowCart(true),style:{flex:1,textAlign:"left",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:12,padding:"10px 16px",cursor:"pointer",minHeight:58}},
+                h('div',{style:{fontSize:13,color:"var(--text3)"}}, myLines.reduce((s,l)=>s+l.qty,0)+" plato(s) · ver comanda"),
+                h('div',{style:{fontSize:20,fontWeight:800,fontFamily:"var(--sora)"}}, fmtCost(cartTotal))
+              ),
+              unsent.length>0&&h('button',{onClick:sendToKitchen,style:{minHeight:58,padding:"0 22px",borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:17,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer",whiteSpace:"nowrap"}}, "🔔 Enviar ("+unsent.reduce((s,l)=>s+l.qty,0)+")")
+            )
+          )
+    ),
+    // ── Comanda sheet ──
+    showCart&&h('div',{onClick:()=>setShowCart(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end"}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:640,margin:"0 auto",background:"var(--surface)",borderTopLeftRadius:18,borderTopRightRadius:18,maxHeight:"85vh",display:"flex",flexDirection:"column"}},
+        h('div',{style:{padding:"14px 16px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800}},"Comanda · Mesa "+tableNum),
+          h('button',{onClick:()=>setShowCart(false),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,width:40,height:40,fontSize:18,cursor:"pointer",color:"var(--text2)"}},"✕")
+        ),
+        h('div',{style:{flex:1,overflowY:"auto",padding:12}},
+          myLines.length===0
+            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"2rem"}},"Aún no agregas platos")
+            : myLines.map(l=>h('div',{key:l.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 6px",borderBottom:"1px solid var(--border)"}},
+                h('div',{style:{flex:1,minWidth:0}},
+                  h('div',{style:{fontSize:16,fontWeight:700}}, recName(l.recipeId)),
+                  l.note&&h('div',{style:{fontSize:13,color:"var(--yellow)"}},"📝 "+l.note),
+                  l.kds&&h('div',{style:{fontSize:12,fontWeight:700,color:l.kds==="ready"?"var(--green)":"var(--yellow)"}}, l.kds==="ready"?"✓ Listo":"🔔 En cocina")
+                ),
+                !l.kds
+                  ? h('div',{style:{display:"flex",alignItems:"center",gap:8,flexShrink:0}},
+                      h('button',{onClick:()=>{setNoteLine(l.id);setNoteText(l.note||"");},style:{...step,width:44,fontSize:17}},"📝"),
+                      h('button',{onClick:()=>changeQty(l,-1),style:step},"−"),
+                      h('span',{style:{minWidth:26,textAlign:"center",fontSize:18,fontWeight:800}},l.qty),
+                      h('button',{onClick:()=>changeQty(l,1),style:step},"+")
+                    )
+                  : h('span',{style:{fontSize:16,fontWeight:800,flexShrink:0}}, l.qty+"×")
+              ))
+        ),
+        h('div',{style:{padding:12,borderTop:"1px solid var(--border)",display:"flex",gap:10,alignItems:"center",paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
+          h('div',{style:{flex:1}}, h('div',{style:{fontSize:13,color:"var(--text3)"}},"Total"), h('div',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}}, fmtCost(cartTotal))),
+          unsent.length>0&&h('button',{onClick:sendToKitchen,style:{minHeight:56,padding:"0 24px",borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}},"🔔 Enviar a cocina")
+        )
+      )
+    ),
+    // ── Note modal ──
+    noteLine&&h('div',{onClick:()=>setNoteLine(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:400}},
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:10}},"Nota para la cocina"),
+        h('input',{value:noteText,onChange:e=>setNoteText(e.target.value),placeholder:"ej. sin cebolla, término medio",style:{width:"100%",fontSize:16,marginBottom:12}}),
+        h('div',{style:{display:"flex",gap:10}},
+          h(Btn,{onClick:saveNote,style:{flex:1}},"Guardar"),
+          h(Btn,{variant:"ghost",onClick:()=>setNoteLine(null)},"Cancelar")
+        )
+      )
+    )
+  );
+}
+
 // ─── COCINA · Pantalla de comandas (Kitchen Display) ──────────────────────────
 // Tablet-first board. Shows the comandas the cajero envió a cocina — live, via
 // the same realtime sync. The kitchen taps each plato listo and marca el pedido
 // completo. Sin doble digitación: una comanda ES las líneas del propio pedido.
-function KitchenDisplay({data,setData,toast}){
+function KitchenDisplay({data,setData,toast,onExit}){
   const [tab,setTab]=useState("pend");                 // pend | done
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),20000); return ()=>clearInterval(t); },[]);
@@ -6279,6 +6450,7 @@ function KitchenDisplay({data,setData,toast}){
 
   return h('div',{className:"slide-up",style:{maxWidth:1400,margin:"0 auto"}},
     h('div',{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14}},
+      onExit&&h('button',{onClick:onExit,style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:44}},"‹ Volver"),
       h('span',{style:{fontSize:30}},"🔔"),
       h('h1',{style:{fontFamily:"var(--sora)",fontSize:26,fontWeight:800}},"Cocina")
     ),
@@ -9451,6 +9623,7 @@ function App(){
   });
   const [toastMsg,setToastMsg]=useState(null);
   const [currentUser,setCurrentUser]=useState(null);
+  const [stationMode,setStationMode]=useState(null);   // null | "order" | "kitchen" (kiosko)
   // Live cloud connection status for the top-bar pill: synced | syncing | offline.
   const [syncStatus,setSyncStatus]=useState(cloud&&cloud.online===false?"offline":"synced");
   const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
@@ -9713,8 +9886,18 @@ function App(){
 
   const role=currentUser.role;
 
+  // Estación (modo kiosko a pantalla completa): el mozo queda bloqueado aquí;
+  // cajero/chef la activan con un botón en Inicio y pueden volver al panel.
+  const stationActive = role==="mozo" ? "order" : stationMode;
+  if(stationActive==="order")
+    return h(OrderStation,{data,setData,toast,currentUser,lockedMozo:role==="mozo",
+      onExit: role==="mozo" ? doLogout : ()=>setStationMode(null)});
+  if(stationActive==="kitchen")
+    return h('div',{style:{position:"fixed",inset:0,overflowY:"auto",background:"var(--bg)",padding:"16px 20px calc(16px + env(safe-area-inset-bottom,0px))"}},
+      h(KitchenDisplay,{data,setData,toast,onExit:()=>setStationMode(null)}));
+
   const pages={
-    dashboard:h(Dashboard,{data,setPage,currentUser}),
+    dashboard:h(Dashboard,{data,setPage,currentUser,onStation:setStationMode}),
     inventory: can(role,"editInventory")
       ? h(Inventory,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editInventory",role}),
