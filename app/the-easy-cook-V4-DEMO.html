@@ -526,7 +526,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.21";
+const APP_VERSION = "4.6.22";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
   {v:"4.6.20", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
@@ -756,7 +756,8 @@ const INIT = {
   orderLines:[
     {id:"OL001",orderId:"ORD001",recipeId:"R002",qty:2,note:""},
     {id:"OL002",orderId:"ORD001",recipeId:"R001",qty:1,note:""},
-    {id:"OL003",orderId:"ORD002",recipeId:"R002",qty:2,note:""},
+    {id:"OL003",orderId:"ORD002",recipeId:"R002",qty:2,note:"sin picante",kds:"pending",sentAt:Date.now()-9*60000},
+    {id:"OLC01",orderId:"ORD002",recipeId:"R001",qty:1,note:"para llevar",kds:"pending",sentAt:Date.now()-9*60000},
     // Week 1 extra
     {id:"OL004",orderId:"ORD003",recipeId:"R001",qty:2,note:""},
     {id:"OL005",orderId:"ORD003",recipeId:"R003",qty:1,note:""},
@@ -816,8 +817,8 @@ const INIT = {
     {id:"OL054",orderId:"ORD033",recipeId:"R001",qty:2,note:""},
     {id:"OL055",orderId:"ORD033",recipeId:"R004",qty:2,note:""},
     {id:"OL056",orderId:"ORD034",recipeId:"R002",qty:2,note:""},
-    {id:"OL057",orderId:"ORD035",recipeId:"R003",qty:3,note:""},
-    {id:"OL058",orderId:"ORD035",recipeId:"R002",qty:1,note:""},
+    {id:"OL057",orderId:"ORD035",recipeId:"R003",qty:3,note:"",kds:"ready",sentAt:Date.now()-16*60000,readyAt:Date.now()-2*60000},
+    {id:"OL058",orderId:"ORD035",recipeId:"R002",qty:1,note:"bien cocido",kds:"ready",sentAt:Date.now()-16*60000,readyAt:Date.now()-60000},
   ],
   suppliers:[
     {id:"SUP001",name:"Cárnicos del Norte SAC",contact:"Carlos Ríos",phone:"987-654-321",email:"carlos@carnicosnorte.pe",category:"Carnes y Aves",leadTime:2,minOrder:150,notes:"Entrega Mar/Jue. Pedido mínimo S/ 150."},
@@ -983,11 +984,11 @@ const ROLES = {
 
 // Permission matrix: what each role CAN do
 const PERMS = {
-  owner:   {editInventory:true,  editRecipes:true,  viewReports:true,  editSales:true,  editPurchases:true,  manageUsers:true,  manageSettings:true},
-  chef:    {editInventory:true,  editRecipes:true,  viewReports:false, editSales:false, editPurchases:true,  manageUsers:false, manageSettings:false},
-  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false},
-  cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false},
-  viewer:  {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false},
+  owner:   {editInventory:true,  editRecipes:true,  viewReports:true,  editSales:true,  editPurchases:true,  manageUsers:true,  manageSettings:true,  viewKitchen:true },
+  chef:    {editInventory:true,  editRecipes:true,  viewReports:false, editSales:false, editPurchases:true,  manageUsers:false, manageSettings:false, viewKitchen:true },
+  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true },
+  cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true },
+  viewer:  {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false},
 };
 
 function can(role, perm){ return !!(PERMS[role]&&PERMS[role][perm]); }
@@ -4553,6 +4554,11 @@ function Sales({data,setData,toast,currentUser}){
     setEditLineModal(false);toast("Línea actualizada","success");
   };
   const deleteLine=lid=>{setData(d=>({...d,orderLines:d.orderLines.filter(l=>l.id!==lid)}));toast("Plato eliminado","info");};
+  const sendToKitchen=(ord)=>{
+    const ts=Date.now();
+    setData(d=>({...d,orderLines:d.orderLines.map(l=>(l.orderId===ord.id&&!l.kds)?{...l,kds:"pending",sentAt:ts}:l)}));
+    toast("Comanda enviada a cocina 🔔","success");
+  };
   const closeOrder=ord=>{
     setData(d=>{
       let prods=[...d.products];
@@ -4675,7 +4681,13 @@ function Sales({data,setData,toast,currentUser}){
           lines.map(l=>{const r=recipeById(recipes,l.recipeId);const lc=recipeFoodCost(l.recipeId,products,bom,subBom,subRecipes)*l.qty;
             return h('div',{key:l.id,style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 14px",display:"flex",alignItems:"center",gap:10}},
               h('div',{style:{flex:1,minWidth:0}},
-                h('div',{style:{fontSize:13,fontWeight:500}},r?.name||l.recipeId),
+                h('div',{style:{fontSize:13,fontWeight:500,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
+                  h('span',null,r?.name||l.recipeId),
+                  l.kds&&h('span',{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap",
+                    color:l.kds==="ready"?"var(--green)":"var(--yellow)",
+                    background:l.kds==="ready"?"rgba(34,197,94,0.12)":"rgba(234,179,8,0.12)"}},
+                    l.kds==="ready"?"✓ Listo":"🔔 En cocina")
+                ),
                 l.note&&h('div',{style:{fontSize:11,color:"var(--yellow)",marginTop:1}},"📝 "+l.note),
                 h('div',{style:{fontSize:12,color:"var(--text2)",marginTop:1}},
                   `${fmtNum(l.qty)} × ${fmtCost(r?.price||0)} = `,h('span',{style:{fontWeight:600,color:"var(--accent)"}},fmtCost((r?.price||0)*l.qty)))
@@ -4690,6 +4702,8 @@ function Sales({data,setData,toast,currentUser}){
             );
           })
         ),
+      isOpen&&lines.some(l=>!l.kds)&&h(Btn,{size:"lg",onClick:()=>sendToKitchen(ord),style:{width:"100%",marginBottom:16}},
+        "🔔 Enviar a cocina ("+lines.filter(l=>!l.kds).length+" plato"+(lines.filter(l=>!l.kds).length===1?"":"s")+" nuevo"+(lines.filter(l=>!l.kds).length===1?"":"s")+")"),
       lines.length>0&&h('div',{style:{marginBottom:16}},
         // ── Receipt block ────────────────────────────────────────────────────
         h('div',{style:{
@@ -6257,6 +6271,94 @@ function MenuEngineering({data}){
 }
 
 // ─── SALES & CAJA COMBINED ────────────────────────────────────────────────────
+// ─── COCINA · Pantalla de comandas (Kitchen Display) ──────────────────────────
+function KitchenDisplay({data,setData,toast}){
+  const [tab,setTab]=useState("pend");                 // pend | done
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),20000); return ()=>clearInterval(t); },[]);
+  const recipes=data.recipes||[], orders=data.orders||[], lines=data.orderLines||[];
+  const recName=id=>{ const r=recipes.find(x=>x.id===id); return r?r.name:id; };
+
+  const cards=orders.filter(o=>o.status==="open").map(o=>{
+    const ol=lines.filter(l=>l.orderId===o.id&&l.kds);
+    if(!ol.length) return null;
+    return {o, ol, allReady:ol.every(l=>l.kds==="ready"), sentAt:Math.min(...ol.map(l=>l.sentAt||now))};
+  }).filter(Boolean);
+  const pend=cards.filter(c=>!c.allReady).sort((a,b)=>a.sentAt-b.sentAt);
+  const done=cards.filter(c=>c.allReady).sort((a,b)=>b.sentAt-a.sentAt);
+  const shown=tab==="pend"?pend:done;
+
+  const toggleLine=l=>setData(d=>({...d,orderLines:d.orderLines.map(x=>x.id===l.id
+    ?{...x,kds:x.kds==="ready"?"pending":"ready",readyAt:x.kds==="ready"?undefined:Date.now()}:x)}));
+  const markReady=c=>{ setData(d=>({...d,orderLines:d.orderLines.map(x=>(x.orderId===c.o.id&&x.kds&&x.kds!=="ready")
+    ?{...x,kds:"ready",readyAt:Date.now()}:x)})); toast("Pedido listo ✓","success"); };
+  const reopen=c=>setData(d=>({...d,orderLines:d.orderLines.map(x=>(x.orderId===c.o.id&&x.kds==="ready")
+    ?{...x,kds:"pending",readyAt:undefined}:x)}));
+
+  const ageMin=t=>Math.max(0,Math.floor((now-t)/60000));
+  const ageColor=m=>m>=13?"var(--red)":m>=6?"var(--yellow)":"var(--green)";
+  const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
+    flex:1,padding:"16px",borderRadius:"var(--radius)",fontSize:18,fontWeight:800,cursor:"pointer",
+    fontFamily:"var(--sora)",border:"none",minHeight:60,
+    background:tab===id?"var(--accent)":"var(--surface2)",color:tab===id?"#fff":"var(--text2)"}},txt);
+
+  return h('div',{className:"slide-up",style:{maxWidth:1400,margin:"0 auto"}},
+    h('div',{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14}},
+      h('span',{style:{fontSize:30}},"🔔"),
+      h('h1',{style:{fontFamily:"var(--sora)",fontSize:26,fontWeight:800}},"Cocina")
+    ),
+    h('div',{style:{display:"flex",gap:10,marginBottom:18}},
+      tabBtn("pend","Pendientes ("+pend.length+")"),
+      tabBtn("done","Listos ("+done.length+")")
+    ),
+    shown.length===0
+      ? h('div',{style:{textAlign:"center",padding:"4rem 1rem",color:"var(--text3)"}},
+          h('div',{style:{fontSize:56,marginBottom:12}}, tab==="pend"?"🍽":"✓"),
+          h('div',{style:{fontSize:19,fontWeight:600}}, tab==="pend"?"No hay comandas pendientes":"Nada listo todavía"),
+          tab==="pend"&&h('div',{style:{fontSize:15,color:"var(--text3)",marginTop:6}},"Las comandas que el cajero envíe aparecerán aquí al instante."))
+      : h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16,alignItems:"start"}},
+          shown.map(c=>{ const m=ageMin(c.sentAt);
+            return h('div',{key:c.o.id,style:{background:"var(--surface)",
+              border:"2px solid "+(c.allReady?"rgba(34,197,94,0.45)":"var(--border2)"),
+              borderRadius:16,overflow:"hidden",display:"flex",flexDirection:"column"}},
+              h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"14px 16px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}},
+                h('div',null,
+                  h('div',{style:{fontFamily:"var(--sora)",fontSize:22,fontWeight:800}},"Mesa "+(c.o.tableNum||"—")),
+                  h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}},
+                    (c.o.pax?c.o.pax+" pers.":"")+(c.o.waiter?" · "+c.o.waiter:"")+" · "+(c.o.code||""))
+                ),
+                h('div',{style:{fontSize:15,fontWeight:800,color:ageColor(m),padding:"6px 12px",borderRadius:20,
+                  background:"var(--bg)",border:"1px solid "+ageColor(m),whiteSpace:"nowrap"}}, m<1?"ahora":"hace "+m+" min")
+              ),
+              h('div',{style:{flex:1}},
+                c.ol.map(l=>{ const rd=l.kds==="ready";
+                  return h('button',{key:l.id,onClick:()=>toggleLine(l),style:{
+                    width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,
+                    padding:"14px 16px",minHeight:58,border:"none",borderBottom:"1px solid var(--border)",
+                    background:rd?"rgba(34,197,94,0.08)":"transparent",cursor:"pointer"}},
+                    h('span',{style:{fontSize:24,width:30,flexShrink:0}}, rd?"✅":"⬜"),
+                    h('span',{style:{flex:1,minWidth:0}},
+                      h('span',{style:{fontSize:20,fontWeight:700,color:rd?"var(--text3)":"var(--text)",textDecoration:rd?"line-through":"none"}},
+                        (l.qty>1?l.qty+"× ":"")+recName(l.recipeId)),
+                      l.note&&h('span',{style:{display:"block",fontSize:15,color:"var(--yellow)",marginTop:2}},"📝 "+l.note)
+                    )
+                  );
+                })
+              ),
+              h('div',{style:{padding:12}},
+                tab==="pend"
+                  ? h('button',{onClick:()=>markReady(c),style:{width:"100%",minHeight:56,border:"none",borderRadius:12,
+                      background:"var(--green)",color:"#fff",fontSize:19,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}},"✓ Pedido listo")
+                  : h('button',{onClick:()=>reopen(c),style:{width:"100%",minHeight:52,borderRadius:12,
+                      background:"var(--surface2)",border:"1px solid var(--border2)",color:"var(--text2)",fontSize:17,fontWeight:700,cursor:"pointer"}},"↩ Reabrir")
+              )
+            );
+          })
+        )
+  );
+}
+
 function SalesRecon({data,setData,toast,currentUser}){
   const [tab,setTab]=useState("sales");
   const discCount=(data.orders||[]).filter(o=>(o.priceAdj||0)<0).length;
@@ -8860,6 +8962,7 @@ const NAV=[
   {id:"recipes",icon:"🍽",label:"Recetas"},
   {id:"abastecimiento",icon:"🛒",label:"Compras"},
   {id:"salesrecon",icon:"🧾",label:"Ventas"},
+  {id:"cocina",icon:"🔔",label:"Cocina"},
   {id:"reports",icon:"📋",label:"Reportes"},
   {id:"menueng",icon:"📊",label:"Menú"},
   {id:"users",icon:"👥",label:"Equipo"},
@@ -8868,6 +8971,7 @@ const NAV=[
 function BottomNav({page,setPage,role}){
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
+    if(n.id==="cocina"&&!can(role,"viewKitchen"))return false;
     if(n.id==="reports"&&!can(role,"viewReports"))return false;
     if(n.id==="users"&&!can(role,"manageUsers"))return false;
     if(n.id==="settings"&&!can(role,"manageSettings"))return false;
@@ -8944,6 +9048,7 @@ function ChangelogModal({open,onClose,data}){
 function Sidebar({page,setPage,role,currentUser,onLogout,data}){
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
+    if(n.id==="cocina"&&!can(role,"viewKitchen"))return false;
     if(n.id==="reports"&&!can(role,"viewReports"))return false;
     if(n.id==="users"&&!can(role,"manageUsers"))return false;
     if(n.id==="settings"&&!can(role,"manageSettings"))return false;
@@ -9005,7 +9110,7 @@ function Sidebar({page,setPage,role,currentUser,onLogout,data}){
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-const PAGE_TITLES={dashboard:null,inventory:"Inventario",recipes:"Recetas",menueng:"Ingeniería de Menú",abastecimiento:"Abastecimiento",sales:"Ventas",payrecon:"Cuadre de Caja",salesrecon:"Ventas & Caja",reports:"Reportes",users:"Equipo",activitylog:"Registro de Actividad",settings:"Configuración"};
+const PAGE_TITLES={dashboard:null,inventory:"Inventario",recipes:"Recetas",menueng:"Ingeniería de Menú",abastecimiento:"Abastecimiento",sales:"Ventas",payrecon:"Cuadre de Caja",salesrecon:"Ventas & Caja",cocina:"Cocina",reports:"Reportes",users:"Equipo",activitylog:"Registro de Actividad",settings:"Configuración"};
 
 // ─── APP ─────────────────────────────────────────────────────────────────────
 const APP_KEY = "theeasycook_demo_data";  // clave separada de producción — evita colisión de datos
@@ -9215,6 +9320,9 @@ function App(){
     salesrecon: can(role,"editSales")
       ? h(SalesRecon,{data,setData,toast,logActivity,currentUser})
       : h(PermGate,{perm:"editSales",role}),
+    cocina: can(role,"viewKitchen")
+      ? h(KitchenDisplay,{data,setData,toast})
+      : h(PermGate,{perm:"viewKitchen",role}),
     reports: can(role,"viewReports")
       ? h(Reports,{data})
       : h(PermGate,{perm:"viewReports",role}),
