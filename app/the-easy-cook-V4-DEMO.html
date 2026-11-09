@@ -526,7 +526,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.24";
+const APP_VERSION = "4.6.25";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
   {v:"4.6.20", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
@@ -710,6 +710,7 @@ const INIT = {
     {id:"PH032",productId:"P009",date:"2026-07-09",unitCost:32.0},
   ],
   sales:[],
+  waiters:["María","Juan","Rosa"],
   orders:[
     {id:"ORD001",code:"#001",tableNum:4,date:"2026-07-11",status:"closed",waiter:"María",pax:4},
     {id:"ORD002",code:"#002",tableNum:7,date:new Date().toISOString().slice(0,10),status:"open",waiter:"Juan",pax:6},
@@ -6290,9 +6291,13 @@ function MenuEngineering({data}){
 function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
   const recipes=(data.recipes||[]), recipeCategories=(data.recipeCategories||[]);
   const orders=(data.orders||[]), lines=(data.orderLines||[]);
+  const waiters=data.waiters||[];
   const [tableNum,setTableNum]=useState(null);
   const [cat,setCat]=useState("all");
   const [q,setQ]=useState("");
+  const [waiterName,setWaiterName]=useState("");
+  const [mozoModal,setMozoModal]=useState(false);
+  const [newMozo,setNewMozo]=useState("");
   const [showCart,setShowCart]=useState(false);
   const [showHistory,setShowHistory]=useState(false);
   const [paxModal,setPaxModal]=useState(false);
@@ -6315,7 +6320,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
 
   const addDish=(r)=>setData(d=>{
     let os=d.orders, o=os.find(x=>x.status==="open"&&x.tableNum===tableNum);
-    if(!o){ o={id:"ORD"+uid(),code:nextCode(),tableNum,pax:0,date:today(),waiter:currentUser?.name||"",status:"open"}; os=[...os,o]; }
+    if(!o){ o={id:"ORD"+uid(),code:nextCode(),tableNum,pax:0,date:today(),waiter:waiterName||currentUser?.name||"",status:"open"}; os=[...os,o]; }
     const ex=d.orderLines.find(l=>l.orderId===o.id&&l.recipeId===r.id&&!l.kds&&!l.note);
     const ols = ex ? d.orderLines.map(l=>l===ex?{...l,qty:l.qty+1}:l)
                    : [...d.orderLines,{id:"OL"+uid(),orderId:o.id,recipeId:r.id,qty:1,note:""}];
@@ -6335,6 +6340,8 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
                     : {...d,orderLines:d.orderLines.map(l=>l===t?{...l,qty:l.qty-1}:l)};
   });
   const savePax=()=>{ const n=parseInt(paxText)||0; setData(d=>({...d,orders:d.orders.map(o=>(o.status==="open"&&o.tableNum===tableNum)?{...o,pax:n}:o)})); setPaxModal(false); };
+  const pickMozo=(name)=>{ setWaiterName(name); setMozoModal(false); };
+  const addMozo=()=>{ const n=newMozo.trim(); if(!n)return; if(!waiters.includes(n)) setData(d=>({...d,waiters:[...(d.waiters||[]),n]})); setWaiterName(n); setNewMozo(""); setMozoModal(false); };
   const saveNote=()=>{ setData(d=>({...d,orderLines:d.orderLines.map(x=>x.id===noteLine?{...x,note:noteText.trim()}:x)})); setNoteLine(null); setNoteText(""); };
   const sendToKitchen=()=>{
     if(!order) return; const ts=Date.now();
@@ -6354,6 +6361,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
       h('div',{style:{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--border2)",background:"var(--surface)",flexShrink:0}},
         h('button',{onClick: tableNum!=null?()=>setTableNum(null):onExit, style:backBtn}, tableNum!=null?"‹ Mesas":(lockedMozo?"Salir":"‹ Volver")),
         h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:800,flex:1}}, tableNum!=null?("Mesa "+tableNum):"Estación de ventas"),
+        h('button',{onClick:()=>setMozoModal(true),style:{background:waiterName?"rgba(20,184,166,0.14)":"var(--surface2)",border:"1px solid "+(waiterName?"#14b8a6":"var(--border2)"),borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:700,color:waiterName?"#14b8a6":"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis"}}, "🙋 "+(waiterName||"Mozo")),
         tableNum==null&&h('button',{onClick:()=>setShowHistory(true),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap"}},"🕑 Historial"),
         tableNum!=null&&h('button',{onClick:()=>{setPaxText(String(order?.pax||""));setPaxModal(true);},style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap"}},"👥 "+(order?.pax||0)),
         tableNum!=null&&h('div',{style:{textAlign:"right"}},
@@ -6458,20 +6466,26 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
             h('div',{style:{fontSize:13,color:"var(--text3)"}}, todayOrders.length+" pedidos · "+fmtCost(todayOrders.reduce((s,o)=>s+orderTotal(o),0)))),
           h('button',{onClick:()=>setShowHistory(false),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,width:40,height:40,fontSize:18,cursor:"pointer",color:"var(--text2)"}},"✕")
         ),
-        h('div',{style:{flex:1,overflowY:"auto",padding:12}},
+        h('div',{style:{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:12}},
           todayOrders.length===0
-            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"2rem"}},"Aún no hay pedidos hoy")
+            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"3rem 1rem"}},
+                h('div',{style:{fontSize:44,marginBottom:10}},"🧾"),
+                h('div',{style:{fontSize:16,fontWeight:600}},"Aún no hay pedidos hoy"))
             : todayOrders.map(o=>{
                 const ol=lines.filter(l=>l.orderId===o.id), sent=ol.filter(l=>l.kds);
-                const st=o.status==="closed"?{t:"Cerrado",c:"var(--text3)"}:(sent.length&&sent.every(l=>l.kds==="ready")?{t:"Listo",c:"var(--green)"}:{t:"Abierto",c:"var(--accent)"});
+                const ready=sent.length&&sent.every(l=>l.kds==="ready");
+                const st=o.status==="closed"?{t:"Cerrado",c:"var(--text3)",bg:"rgba(156,163,175,0.14)"}:ready?{t:"Listo",c:"var(--green)",bg:"rgba(34,197,94,0.14)"}:{t:"Abierto",c:"var(--accent)",bg:"rgba(249,115,22,0.14)"};
                 return h('button',{key:o.id,onClick:()=>{ if(o.status==="open"){ setTableNum(o.tableNum); setShowHistory(false);} },
-                  style:{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:10,padding:"12px 10px",borderBottom:"1px solid var(--border)",background:"transparent",border:"none",cursor:o.status==="open"?"pointer":"default"}},
+                  style:{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:12,padding:"12px",marginBottom:8,borderRadius:12,border:"1px solid var(--border)",background:"var(--surface2)",cursor:o.status==="open"?"pointer":"default"}},
+                  h('div',{style:{width:46,height:46,borderRadius:10,background:"var(--bg)",border:"1px solid var(--border)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                    h('div',{style:{fontSize:9,color:"var(--text3)",lineHeight:1}},"MESA"),
+                    h('div',{style:{fontSize:19,fontWeight:800,fontFamily:"var(--sora)",lineHeight:1.1}},o.tableNum||"—")),
                   h('div',{style:{flex:1,minWidth:0}},
-                    h('div',{style:{fontSize:16,fontWeight:700}}, "Mesa "+(o.tableNum||"—")+" · "+(o.code||"")),
-                    h('div',{style:{fontSize:13,color:"var(--text3)"}}, ol.length+" plato(s)"+(o.waiter?" · "+o.waiter:""))),
-                  h('div',{style:{textAlign:"right",flexShrink:0}},
+                    h('div',{style:{fontSize:15,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}, (o.code||"")+(o.waiter?"  🙋 "+o.waiter:"")),
+                    h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}}, ol.length+" plato(s)"+(o.pax?" · "+o.pax+" pers.":""))),
+                  h('div',{style:{textAlign:"right",flexShrink:0,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}},
                     h('div',{style:{fontSize:16,fontWeight:800,fontFamily:"var(--sora)"}}, fmtCost(orderTotal(o))),
-                    h('div',{style:{fontSize:12,fontWeight:700,color:st.c}}, st.t))
+                    h('span',{style:{fontSize:11,fontWeight:800,color:st.c,background:st.bg,borderRadius:20,padding:"2px 10px"}}, st.t))
                 );
               })
         )
@@ -6485,6 +6499,21 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
           h(Btn,{onClick:savePax,style:{flex:1}},"Guardar"),
           h(Btn,{variant:"ghost",onClick:()=>setPaxModal(false)},"Cancelar")
         )
+      )
+    ),
+    mozoModal&&h('div',{onClick:()=>setMozoModal(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column"}},
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:17,fontWeight:800,marginBottom:4}},"¿Quién atiende?"),
+        h('div',{style:{fontSize:13,color:"var(--text3)",marginBottom:14}},"El nombre aparece en la comanda que ve la cocina."),
+        waiters.length>0&&h('div',{style:{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14,overflowY:"auto",WebkitOverflowScrolling:"touch"}},
+          waiters.map(name=>h('button',{key:name,onClick:()=>pickMozo(name),style:{padding:"12px 16px",borderRadius:12,fontSize:16,fontWeight:700,cursor:"pointer",
+            border:"1px solid "+(waiterName===name?"#14b8a6":"var(--border2)"),
+            background:waiterName===name?"rgba(20,184,166,0.14)":"var(--surface2)",color:waiterName===name?"#14b8a6":"var(--text)"}}, "🙋 "+name))),
+        h('div',{style:{display:"flex",gap:8}},
+          h('input',{value:newMozo,onChange:e=>setNewMozo(e.target.value),onKeyDown:e=>{if(e.key==="Enter")addMozo();},placeholder:"Agregar un mozo…",style:{flex:1,fontSize:16}}),
+          h(Btn,{onClick:addMozo},"Agregar")
+        ),
+        waiterName&&h('button',{onClick:()=>pickMozo(""),style:{marginTop:12,background:"none",border:"none",color:"var(--text3)",fontSize:13,cursor:"pointer",textDecoration:"underline",alignSelf:"flex-start"}},"Quitar mozo")
       )
     ),
     noteLine&&h('div',{onClick:()=>setNoteLine(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
@@ -6590,7 +6619,7 @@ function KitchenDisplay({data,setData,toast,onExit}){
                 h('div',null,
                   h('div',{style:{fontFamily:"var(--sora)",fontSize:22,fontWeight:800}},"Mesa "+(c.o.tableNum||"—")),
                   h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}},
-                    (c.o.pax?c.o.pax+" pers.":"")+(c.o.waiter?" · "+c.o.waiter:"")+" · "+(c.o.code||""))
+                    (c.o.code||"")+(c.o.pax?" · "+c.o.pax+" pers.":"")+(c.o.waiter?"  🙋 "+c.o.waiter:""))
                 ),
                 h('div',{style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
                   (tab==="pend"&&(now-c.sentAt)<45000)&&h('span',{style:{fontSize:12,fontWeight:800,color:"#fff",background:"var(--accent)",borderRadius:12,padding:"3px 9px",animation:"ecPulse 1s ease-in-out infinite"}},"NUEVO"),
@@ -6631,17 +6660,20 @@ function KitchenDisplay({data,setData,toast,onExit}){
             h('div',{style:{fontSize:13,color:"var(--text3)"}}, doneToday.length+" completadas · "+platosToday+" platos")),
           h('button',{onClick:()=>setShowHistory(false),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,width:40,height:40,fontSize:18,cursor:"pointer",color:"var(--text2)"}},"✕")
         ),
-        h('div',{style:{flex:1,overflowY:"auto",padding:12}},
+        h('div',{style:{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:12}},
           todayKds.length===0
-            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"2rem"}},"Aún no llegan comandas hoy")
+            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"3rem 1rem"}},
+                h('div',{style:{fontSize:44,marginBottom:10}},"🍽"),
+                h('div',{style:{fontSize:16,fontWeight:600}},"Aún no llegan comandas hoy"))
             : todayKds.slice().sort((a,b)=>Math.max(...b.ol.map(l=>l.sentAt||0))-Math.max(...a.ol.map(l=>l.sentAt||0))).map(x=>{
                 const ready=x.o.status==="closed"||x.ol.every(l=>l.kds==="ready");
-                return h('div',{key:x.o.id,style:{display:"flex",alignItems:"center",gap:10,padding:"12px 8px",borderBottom:"1px solid var(--border)"}},
-                  h('span',{style:{fontSize:22}}, ready?"✅":"🔔"),
+                const st=ready?{t:"Lista",c:"var(--green)",bg:"rgba(34,197,94,0.14)"}:{t:"En curso",c:"var(--yellow)",bg:"rgba(234,179,8,0.14)"};
+                return h('div',{key:x.o.id,style:{display:"flex",alignItems:"center",gap:12,padding:"12px",marginBottom:8,borderRadius:12,border:"1px solid var(--border)",background:"var(--surface2)"}},
+                  h('span',{style:{fontSize:26,flexShrink:0}}, ready?"✅":"🔔"),
                   h('div',{style:{flex:1,minWidth:0}},
-                    h('div',{style:{fontSize:16,fontWeight:700}}, "Mesa "+(x.o.tableNum||"—")+" · "+(x.o.code||"")),
-                    h('div',{style:{fontSize:13,color:"var(--text3)"}}, x.ol.reduce((s,l)=>s+l.qty,0)+" platos"+(x.o.waiter?" · "+x.o.waiter:""))),
-                  h('div',{style:{fontSize:13,fontWeight:700,color:ready?"var(--green)":"var(--yellow)",flexShrink:0}}, ready?"Lista":"En curso")
+                    h('div',{style:{fontSize:16,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}, "Mesa "+(x.o.tableNum||"—")+" · "+(x.o.code||"")+(x.o.waiter?"  🙋 "+x.o.waiter:"")),
+                    h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}}, x.ol.reduce((s,l)=>s+l.qty,0)+" platos")),
+                  h('span',{style:{fontSize:12,fontWeight:800,color:st.c,background:st.bg,borderRadius:20,padding:"3px 11px",flexShrink:0}}, st.t)
                 );
               })
         )
