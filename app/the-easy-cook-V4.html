@@ -258,7 +258,7 @@ var _fbTimer=setTimeout(function(){
   var inst=document.getElementById("safari-instructions");
   if(msg)msg.style.display="none";
   if(inst)inst.style.display="block";
-},2000);
+},5000);
 window.__appReady=function(){
   clearTimeout(_fbTimer);
   var fb=document.getElementById("fallback");
@@ -575,9 +575,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.17.3";
+const APP_VERSION = "4.17.4";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.17.4", date:"Nov 2026", notes:"Arreglo importante para iPhone: a veces la app cargaba bien pero se quedaba atrás de la pantalla de carga con el mensaje «Abre en Safari», haciendo creer que no abría. Ahora la pantalla de carga se oculta por varias vías (no solo una que iOS suspende en segundo plano), así que la app aparece apenas está lista. En otros dispositivos todo sigue igual de rápido."},
   {v:"4.17.3", date:"Nov 2026", notes:"En celulares y tablets, al tocar 📝 para agregar un comentario o 👥 para el número de personas, el teclado aparece solo y el cursor queda listo para escribir —sin un toque extra. Además puedes presionar Enter para guardar."},
   {v:"4.17.2", date:"Nov 2026", notes:"Estación de ventas a dos columnas: a la izquierda las mesas (que se convierten en la carta al elegir mesa y mozo) y a la derecha la comanda siempre visible, con los botones para agregar comentario, sumar/restar platos y enviar a cocina. En tablet y escritorio ves la carta y la comanda al mismo tiempo; en celular se apilan automáticamente para que todo siga cómodo."},
   {v:"4.17.1", date:"Nov 2026", notes:"Mozo en la comanda: en la Estación de ventas ahora eliges quién atiende (🙋) antes de tomar el pedido, así la cocina ve el nombre del mozo real —útil cuando varios comparten un mismo tablet/estación. Los nombres se guardan y se reutilizan con un toque. Además, los historiales del día (ventas y cocina) quedaron más claros y cómodos de desplazar, con el número de mesa, el mozo y el estado bien visibles."},
@@ -10775,10 +10776,21 @@ if(typeof React === 'undefined' || typeof ReactDOM === 'undefined'){
 } else {
   try {
     ReactDOM.createRoot(document.getElementById('root')).render(h(Root,null));
-    // Signal success to fallback handler (called after first paint via rAF)
-    requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    // Signal "ready" (hides the loading overlay) through several independent
+    // channels. requestAnimationFrame alone is unreliable on iOS — it is
+    // suspended in background tabs and throttled in in-app webviews, which
+    // could otherwise leave the "Abre en Safari" banner stuck on top of the
+    // app that already loaded. __appReady is idempotent, so firing more than
+    // once is harmless.
+    var _signalReady=function(){
       if(window.__appReady) window.__appReady();
-    });});
+      document.removeEventListener('visibilitychange',_signalReady);
+      window.removeEventListener('pageshow',_signalReady);
+    };
+    requestAnimationFrame(function(){ requestAnimationFrame(_signalReady); });
+    setTimeout(_signalReady,1000);                     // backstop: fires even when rAF is suspended
+    document.addEventListener('visibilitychange',_signalReady); // when the user brings the tab forward
+    window.addEventListener('pageshow',_signalReady);           // bfcache / re-show
   } catch(e) {
     var det=document.getElementById('error-detail');
     var msg3=document.getElementById('fallback-msg');
