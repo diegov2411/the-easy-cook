@@ -533,9 +533,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.6.26";
+const APP_VERSION = "4.6.27";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.6.27", date:"Nov 2026", notes:"En celulares y tablets, al tocar 📝 para agregar un comentario o 👥 para el número de personas, el teclado aparece solo y el cursor queda listo para escribir —sin un toque extra. Además puedes presionar Enter para guardar."},
   {v:"4.6.26", date:"Nov 2026", notes:"Estación de ventas a dos columnas: a la izquierda las mesas (que se convierten en la carta al elegir mesa y mozo) y a la derecha la comanda siempre visible, con los botones para agregar comentario, sumar/restar platos y enviar a cocina. En tablet y escritorio ves la carta y la comanda al mismo tiempo; en celular se apilan automáticamente para que todo siga cómodo."},
   {v:"4.6.20", date:"Jul 2026", notes:"Preparada para cartas grandes. Ahora los selectores largos (plato en Ventas, ingrediente en Recetas/Sub-recetas/Compras, sub-receta en Produccion, insumo en Menu) son buscables: escribes y filtras, con lista desplazable en vez de un desplegable interminable. Recetas, Sub-recetas e Inventario tienen buscador por nombre (sin importar tildes) y cargan por tandas con 'Ver mas', asi la pantalla abre rapido aunque tengas cientos de platos o insumos. Por dentro, los calculos de costo dejaron de recorrer todo el catalogo en cada linea: un informe mensual de un restaurante con 300 platos y 7200 ventas pasa de ~2 s de calculo a milisegundos. Ademas se corrigio el costo de alimentos del Inicio, que no estaba sumando las sub-recetas."},
   {v:"4.6.19", date:"Jul 2026", notes:"Dos secciones más en el 'Informe completo': un gráfico de barras con la tendencia de ventas de los últimos 6 meses (con el promedio marcado y una tabla de apoyo con ventas netas, pedidos y costo % de cada mes), y 'Formas de pago' — cuánto entró por Yape, efectivo y tarjeta en el mes, con el % de cada uno y la diferencia contra lo registrado en la app. Ambas salen también en el PDF."},
@@ -6504,7 +6505,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
     paxModal&&h('div',{onClick:()=>setPaxModal(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:360}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:10}},"N° de personas — Mesa "+tableNum),
-        h('input',{type:"number",inputMode:"numeric",value:paxText,onChange:e=>setPaxText(e.target.value),placeholder:"ej. 4",style:{width:"100%",fontSize:18,marginBottom:12}}),
+        h('input',{autoFocus:true,type:"number",inputMode:"numeric",value:paxText,onChange:e=>setPaxText(e.target.value),onKeyDown:e=>{if(e.key==="Enter")savePax();},enterKeyHint:"done",placeholder:"ej. 4",style:{width:"100%",fontSize:18,marginBottom:12}}),
         h('div',{style:{display:"flex",gap:10}},
           h(Btn,{onClick:savePax,style:{flex:1}},"Guardar"),
           h(Btn,{variant:"ghost",onClick:()=>setPaxModal(false)},"Cancelar")
@@ -6529,7 +6530,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
     noteLine&&h('div',{onClick:()=>setNoteLine(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:400}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:10}},"Nota para la cocina"),
-        h('input',{value:noteText,onChange:e=>setNoteText(e.target.value),placeholder:"ej. sin cebolla, término medio",style:{width:"100%",fontSize:16,marginBottom:12}}),
+        h('input',{autoFocus:true,value:noteText,onChange:e=>setNoteText(e.target.value),onKeyDown:e=>{if(e.key==="Enter")saveNote();},enterKeyHint:"done",placeholder:"ej. sin cebolla, término medio",style:{width:"100%",fontSize:16,marginBottom:12}}),
         h('div',{style:{display:"flex",gap:10}},
           h(Btn,{onClick:saveNote,style:{flex:1}},"Guardar"),
           h(Btn,{variant:"ghost",onClick:()=>setNoteLine(null)},"Cancelar")

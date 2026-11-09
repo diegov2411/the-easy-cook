@@ -575,9 +575,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.17.2";
+const APP_VERSION = "4.17.3";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.17.3", date:"Nov 2026", notes:"En celulares y tablets, al tocar 📝 para agregar un comentario o 👥 para el número de personas, el teclado aparece solo y el cursor queda listo para escribir —sin un toque extra. Además puedes presionar Enter para guardar."},
   {v:"4.17.2", date:"Nov 2026", notes:"Estación de ventas a dos columnas: a la izquierda las mesas (que se convierten en la carta al elegir mesa y mozo) y a la derecha la comanda siempre visible, con los botones para agregar comentario, sumar/restar platos y enviar a cocina. En tablet y escritorio ves la carta y la comanda al mismo tiempo; en celular se apilan automáticamente para que todo siga cómodo."},
   {v:"4.17.1", date:"Nov 2026", notes:"Mozo en la comanda: en la Estación de ventas ahora eliges quién atiende (🙋) antes de tomar el pedido, así la cocina ve el nombre del mozo real —útil cuando varios comparten un mismo tablet/estación. Los nombres se guardan y se reutilizan con un toque. Además, los historiales del día (ventas y cocina) quedaron más claros y cómodos de desplazar, con el número de mesa, el mozo y el estado bien visibles."},
   {v:"4.17.0", date:"Nov 2026", notes:"Las estaciones ahora tienen más herramientas. En la Estación de ventas: botones +/− en cada plato para subir o bajar la cantidad sin abrir la comanda, buscador de platos, N° de personas por mesa, y un Historial del día con todos los pedidos y sus totales. En la Cocina: una franja con platos por hacer, espera promedio y comandas del día; aviso 'NUEVO' que resalta las comandas recién llegadas; un botón de sonido que suena al entrar una comanda nueva; y el Historial de comandas de hoy."},
@@ -6489,7 +6490,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
     paxModal&&h('div',{onClick:()=>setPaxModal(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:360}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:10}},"N° de personas — Mesa "+tableNum),
-        h('input',{type:"number",inputMode:"numeric",value:paxText,onChange:e=>setPaxText(e.target.value),placeholder:"ej. 4",style:{width:"100%",fontSize:18,marginBottom:12}}),
+        h('input',{autoFocus:true,type:"number",inputMode:"numeric",value:paxText,onChange:e=>setPaxText(e.target.value),onKeyDown:e=>{if(e.key==="Enter")savePax();},enterKeyHint:"done",placeholder:"ej. 4",style:{width:"100%",fontSize:18,marginBottom:12}}),
         h('div',{style:{display:"flex",gap:10}},
           h(Btn,{onClick:savePax,style:{flex:1}},"Guardar"),
           h(Btn,{variant:"ghost",onClick:()=>setPaxModal(false)},"Cancelar")
@@ -6516,7 +6517,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
     noteLine&&h('div',{onClick:()=>setNoteLine(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       h('div',{onClick:e=>e.stopPropagation(),style:{background:"var(--surface)",borderRadius:16,border:"1px solid var(--border2)",padding:18,width:"100%",maxWidth:400}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:700,marginBottom:10}},"Nota para la cocina"),
-        h('input',{value:noteText,onChange:e=>setNoteText(e.target.value),placeholder:"ej. sin cebolla, término medio",style:{width:"100%",fontSize:16,marginBottom:12}}),
+        h('input',{autoFocus:true,value:noteText,onChange:e=>setNoteText(e.target.value),onKeyDown:e=>{if(e.key==="Enter")saveNote();},enterKeyHint:"done",placeholder:"ej. sin cebolla, término medio",style:{width:"100%",fontSize:16,marginBottom:12}}),
         h('div',{style:{display:"flex",gap:10}},
           h(Btn,{onClick:saveNote,style:{flex:1}},"Guardar"),
           h(Btn,{variant:"ghost",onClick:()=>setNoteLine(null)},"Cancelar")
