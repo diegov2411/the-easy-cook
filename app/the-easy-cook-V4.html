@@ -52,6 +52,14 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 /* Scrollable tab strips: hide the horizontal scrollbar (pills scroll on mobile, sit inline on desktop) */
 .ec-tabs{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}
 .ec-tabs::-webkit-scrollbar{display:none;}
+/* Estación de ventas: dos columnas (carta | comanda); se apila en pantallas angostas */
+.ec-station-body{display:flex;flex:1;min-height:0;}
+.ec-station-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;}
+.ec-station-cart{width:360px;flex-shrink:0;border-left:1px solid var(--border2);background:var(--surface);display:flex;flex-direction:column;min-height:0;}
+@media(max-width:820px){
+  .ec-station-body{flex-direction:column;}
+  .ec-station-cart{width:auto;border-left:none;border-top:1px solid var(--border2);max-height:42%;}
+}
 
 /* ── DESKTOP LAYOUT (≥769px) ─────────────────────────────────────────── */
 @media(min-width:769px){
@@ -567,9 +575,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.17.1";
+const APP_VERSION = "4.17.2";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.17.2", date:"Nov 2026", notes:"Estación de ventas a dos columnas: a la izquierda las mesas (que se convierten en la carta al elegir mesa y mozo) y a la derecha la comanda siempre visible, con los botones para agregar comentario, sumar/restar platos y enviar a cocina. En tablet y escritorio ves la carta y la comanda al mismo tiempo; en celular se apilan automáticamente para que todo siga cómodo."},
   {v:"4.17.1", date:"Nov 2026", notes:"Mozo en la comanda: en la Estación de ventas ahora eliges quién atiende (🙋) antes de tomar el pedido, así la cocina ve el nombre del mozo real —útil cuando varios comparten un mismo tablet/estación. Los nombres se guardan y se reutilizan con un toque. Además, los historiales del día (ventas y cocina) quedaron más claros y cómodos de desplazar, con el número de mesa, el mozo y el estado bien visibles."},
   {v:"4.17.0", date:"Nov 2026", notes:"Las estaciones ahora tienen más herramientas. En la Estación de ventas: botones +/− en cada plato para subir o bajar la cantidad sin abrir la comanda, buscador de platos, N° de personas por mesa, y un Historial del día con todos los pedidos y sus totales. En la Cocina: una franja con platos por hacer, espera promedio y comandas del día; aviso 'NUEVO' que resalta las comandas recién llegadas; un botón de sonido que suena al entrar una comanda nueva; y el Historial de comandas de hoy."},
   {v:"4.16.0", date:"Nov 2026", notes:"¡Nueva Estación de ventas para mozos! Pensada para un tablet: el mozo elige la mesa, toca los platos de la carta (por categorías, con buscador visual y aviso de agotados) y envía la comanda a la cocina — sin papel y sin doble digitación. Nuevo rol 'Mozo' que abre solo la estación de ventas y nada más (ideal para un tablet de salón). Y en Inicio hay accesos directos: el cajero puede convertir su equipo en estación de ventas y el chef en estación de cocina, con un toque, y volver al panel cuando quiera."},
@@ -6343,20 +6352,19 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
         h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:800,flex:1}}, tableNum!=null?("Mesa "+tableNum):"Estación de ventas"),
         h('button',{onClick:()=>setMozoModal(true),style:{background:waiterName?"rgba(20,184,166,0.14)":"var(--surface2)",border:"1px solid "+(waiterName?"#14b8a6":"var(--border2)"),borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:700,color:waiterName?"#14b8a6":"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis"}}, "🙋 "+(waiterName||"Mozo")),
         tableNum==null&&h('button',{onClick:()=>setShowHistory(true),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap"}},"🕑 Historial"),
-        tableNum!=null&&h('button',{onClick:()=>{setPaxText(String(order?.pax||""));setPaxModal(true);},style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap"}},"👥 "+(order?.pax||0)),
-        tableNum!=null&&h('div',{style:{textAlign:"right"}},
-          h('div',{style:{fontSize:11,color:"var(--text3)"}},"total"),
-          h('div',{style:{fontSize:18,fontWeight:800,fontFamily:"var(--sora)",color:"var(--accent)"}},fmtCost(cartTotal)))
+        tableNum!=null&&h('button',{onClick:()=>{setPaxText(String(order?.pax||""));setPaxModal(true);},style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:48,whiteSpace:"nowrap"}},"👥 "+(order?.pax||0))
       ),
+      h('div',{className:"ec-station-body"},
+       h('div',{className:"ec-station-main"},
       tableNum==null
         // ── Mesas ──
-        ? h('div',{style:{flex:1,overflowY:"auto",padding:16}},
+        ? h('div',{style:{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:16}},
             h('div',{style:{fontSize:15,color:"var(--text3)",marginBottom:12}},"Toca una mesa para tomar o continuar su pedido"),
             h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:12}},
               Array.from({length:maxTable},(_,i)=>i+1).map(n=>{
                 const o=openByTable[n], ready=o&&tableReady(o);
                 const bd=ready?"var(--green)":o?"var(--accent)":"var(--border2)";
-                return h('button',{key:n,onClick:()=>setTableNum(n),style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
+                return h('button',{key:n,onClick:()=>{ setTableNum(n); if(!waiterName) setMozoModal(true); },style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
                   background:ready?"rgba(34,197,94,0.12)":o?"rgba(249,115,22,0.12)":"var(--surface)",
                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}},
                   h('span',{style:{fontFamily:"var(--sora)",fontSize:30,fontWeight:800}},n),
@@ -6400,45 +6408,46 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
                     })
                   )
             ),
-            // ── Cart bar ──
-            h('div',{style:{flexShrink:0,borderTop:"1px solid var(--border2)",background:"var(--surface)",padding:"12px 16px",display:"flex",gap:12,alignItems:"center",paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
-              h('button',{onClick:()=>setShowCart(true),style:{flex:1,textAlign:"left",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:12,padding:"10px 16px",cursor:"pointer",minHeight:58}},
-                h('div',{style:{fontSize:13,color:"var(--text3)"}}, myLines.reduce((s,l)=>s+l.qty,0)+" plato(s) · ver comanda"),
-                h('div',{style:{fontSize:20,fontWeight:800,fontFamily:"var(--sora)"}}, fmtCost(cartTotal))
-              ),
-              unsent.length>0&&h('button',{onClick:sendToKitchen,style:{minHeight:58,padding:"0 22px",borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:17,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer",whiteSpace:"nowrap"}}, "🔔 Enviar ("+unsent.reduce((s,l)=>s+l.qty,0)+")")
-            )
           )
-    ),
-    // ── Comanda sheet ──
-    showCart&&h('div',{onClick:()=>setShowCart(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end"}},
-      h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:640,margin:"0 auto",background:"var(--surface)",borderTopLeftRadius:18,borderTopRightRadius:18,maxHeight:"85vh",display:"flex",flexDirection:"column"}},
-        h('div',{style:{padding:"14px 16px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          h('div',{style:{fontFamily:"var(--sora)",fontSize:18,fontWeight:800}},"Comanda · Mesa "+tableNum),
-          h('button',{onClick:()=>setShowCart(false),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,width:40,height:40,fontSize:18,cursor:"pointer",color:"var(--text2)"}},"✕")
         ),
-        h('div',{style:{flex:1,overflowY:"auto",padding:12}},
-          myLines.length===0
-            ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"2rem"}},"Aún no agregas platos")
-            : myLines.map(l=>h('div',{key:l.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 6px",borderBottom:"1px solid var(--border)"}},
-                h('div',{style:{flex:1,minWidth:0}},
-                  h('div',{style:{fontSize:16,fontWeight:700}}, recName(l.recipeId)),
-                  l.note&&h('div',{style:{fontSize:13,color:"var(--yellow)"}},"📝 "+l.note),
-                  l.kds&&h('div',{style:{fontSize:12,fontWeight:700,color:l.kds==="ready"?"var(--green)":"var(--yellow)"}}, l.kds==="ready"?"✓ Listo":"🔔 En cocina")
+        // ── Derecha: comanda persistente ──
+        h('div',{className:"ec-station-cart"},
+          tableNum==null
+            ? h('div',{style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center",color:"var(--text3)"}},
+                h('div',{style:{fontSize:44,marginBottom:10}},"🧾"),
+                h('div',{style:{fontSize:15,fontWeight:600}},"Selecciona una mesa para empezar"))
+            : h(Fragment,null,
+                h('div',{style:{padding:"14px 16px",borderBottom:"1px solid var(--border)",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+                  h('div',{style:{fontFamily:"var(--sora)",fontSize:17,fontWeight:800}},"Comanda · Mesa "+tableNum),
+                  waiterName&&h('span',{style:{fontSize:13,fontWeight:700,color:"#14b8a6",whiteSpace:"nowrap"}},"🙋 "+waiterName)
                 ),
-                !l.kds
-                  ? h('div',{style:{display:"flex",alignItems:"center",gap:8,flexShrink:0}},
-                      h('button',{onClick:()=>{setNoteLine(l.id);setNoteText(l.note||"");},style:{...step,width:44,fontSize:17}},"📝"),
-                      h('button',{onClick:()=>changeQty(l,-1),style:step},"−"),
-                      h('span',{style:{minWidth:26,textAlign:"center",fontSize:18,fontWeight:800}},l.qty),
-                      h('button',{onClick:()=>changeQty(l,1),style:step},"+")
-                    )
-                  : h('span',{style:{fontSize:16,fontWeight:800,flexShrink:0}}, l.qty+"×")
-              ))
-        ),
-        h('div',{style:{padding:12,borderTop:"1px solid var(--border)",display:"flex",gap:10,alignItems:"center",paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
-          h('div',{style:{flex:1}}, h('div',{style:{fontSize:13,color:"var(--text3)"}},"Total"), h('div',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}}, fmtCost(cartTotal))),
-          unsent.length>0&&h('button',{onClick:sendToKitchen,style:{minHeight:56,padding:"0 24px",borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}},"🔔 Enviar a cocina")
+                h('div',{style:{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:12}},
+                  myLines.length===0
+                    ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"2.5rem 1rem",fontSize:15}},"Toca los platos de la carta para agregarlos")
+                    : myLines.map(l=>h('div',{key:l.id,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 4px",borderBottom:"1px solid var(--border)"}},
+                        h('div',{style:{flex:1,minWidth:0}},
+                          h('div',{style:{fontSize:15,fontWeight:700}}, (l.qty>1?l.qty+"× ":"")+recName(l.recipeId)),
+                          l.note&&h('div',{style:{fontSize:12,color:"var(--yellow)"}},"📝 "+l.note),
+                          l.kds&&h('div',{style:{fontSize:11,fontWeight:700,color:l.kds==="ready"?"var(--green)":"var(--yellow)"}}, l.kds==="ready"?"✓ Listo":"🔔 En cocina")
+                        ),
+                        !l.kds
+                          ? h('div',{style:{display:"flex",alignItems:"center",gap:5,flexShrink:0}},
+                              h('button',{onClick:()=>{setNoteLine(l.id);setNoteText(l.note||"");},style:{...step,width:38,height:38,fontSize:15}},"📝"),
+                              h('button',{onClick:()=>changeQty(l,-1),style:{...step,width:38,height:38}},"−"),
+                              h('button',{onClick:()=>changeQty(l,1),style:{...step,width:38,height:38}},"+")
+                            )
+                          : h('span',{style:{fontSize:17,flexShrink:0}}, l.kds==="ready"?"✅":"🔔")
+                      ))
+                ),
+                h('div',{style:{padding:12,borderTop:"1px solid var(--border)",flexShrink:0,paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
+                  h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    h('span',{style:{fontSize:14,color:"var(--text3)"}},"Total"),
+                    h('span',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}},fmtCost(cartTotal))),
+                  unsent.length>0
+                    ? h('button',{onClick:sendToKitchen,style:{width:"100%",minHeight:56,borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}}, "🔔 Enviar a cocina ("+unsent.reduce((s,l)=>s+l.qty,0)+")")
+                    : myLines.length>0&&h('div',{style:{textAlign:"center",color:"var(--green)",fontSize:14,fontWeight:700,padding:"10px"}},"✓ Todo enviado a cocina")
+                )
+              )
         )
       )
     ),
