@@ -47,6 +47,7 @@ button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+@keyframes ecPulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .slide-up{animation:slideUp .28s ease both}
 .fade-in{animation:fadeIn .2s ease both}
 .ec-card-clickable{transition:border-color .15s ease, transform .15s ease}
@@ -533,9 +534,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.0";
+const APP_VERSION = "4.7.1";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.1", date:"Nov 2026", notes:"Mejoras de uso en las estaciones. En la Estación de ventas, el mapa de mesas ahora muestra cuánto va consumiendo cada mesa (ej. «2 platos · S/ 133.10») de un vistazo, y las mesas con comida lista para servir parpadean suavemente en «Listo ✓» para que el mozo las note al toque. El «Total a cobrar» de la comanda se ve en blanco, bien resaltado sobre el resto. En la Estación de cocina, cada comanda con varios platos muestra su avance «1/2 listos», y el aviso «NUEVO» de las comandas recién llegadas ahora sí parpadea. El cobro en la mesa sigue desactivado por defecto (manda «Caja central»)."},
   {v:"4.7.0", date:"Nov 2026", notes:"La Estación de ventas ahora cierra el ciclo de la mesa. Con «Caja central» (por defecto), el mozo toca «💰 Pedir la cuenta» —viendo el total real a cobrar, con servicio e IGV incluidos— y la mesa pasa a una nueva pestaña «Cobrar» en Ventas & Caja, donde el cajero registra cuánto entró por Yape, efectivo y tarjeta (la suma debe cuadrar con el total) y cobra; eso descuenta el stock y cierra el pedido. Con «El mozo cobra en la mesa» (nuevo interruptor en Config → ¿Quién cobra?), el cobro con los medios de pago aparece directo en la estación. Como cada pedido guarda cómo se pagó, el Cuadre de caja se puede autocompletar con un toque desde los pagos reales del día. Además: al reabrir una mesa se recupera solo el mozo que ya la atendía (sin volver a preguntar), el total de la estación ya muestra el monto real con servicio, y se corrigió la «base imponible» del cuadre cuando hay cargo por servicio."},
   {v:"4.6.28", date:"Nov 2026", notes:"Arreglo importante para iPhone: a veces la app cargaba bien pero se quedaba atrás de la pantalla de carga con el mensaje «Abre en Safari», haciendo creer que no abría. Ahora la pantalla de carga se oculta por varias vías (no solo una que iOS suspende en segundo plano), así que la app aparece apenas está lista. En otros dispositivos todo sigue igual de rápido."},
   {v:"4.6.27", date:"Nov 2026", notes:"En celulares y tablets, al tocar 📝 para agregar un comentario o 👥 para el número de personas, el teclado aparece solo y el cursor queda listo para escribir —sin un toque extra. Además puedes presionar Enter para guardar."},
@@ -6437,12 +6439,15 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
               Array.from({length:maxTable},(_,i)=>i+1).map(n=>{
                 const o=openByTable[n], ready=o&&tableReady(o), billReq=o&&o.billRequested;
                 const bd=billReq?"#8b5cf6":ready?"var(--green)":o?"var(--accent)":"var(--border2)";
+                const stCol=billReq?"#8b5cf6":ready?"var(--green)":o?"var(--accent)":"var(--text3)";
+                const tbase=o?lines.filter(l=>l.orderId===o.id).reduce((s,l)=>s+recPrice(l.recipeId)*l.qty,0)+(o.priceAdj||0):0;
+                const ttot=o?orderGrossTotal(tbase,stnSettings).total:0;
                 return h('button',{key:n,onClick:()=>{ setTableNum(n); const ow=o&&o.waiter; if(ow){ setWaiterName(ow); } else if(!waiterName){ setMozoModal(true); } },style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
                   background:billReq?"rgba(139,92,246,0.12)":ready?"rgba(34,197,94,0.12)":o?"rgba(249,115,22,0.12)":"var(--surface)",
                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}},
                   h('span',{style:{fontFamily:"var(--sora)",fontSize:30,fontWeight:800}},n),
-                  h('span',{style:{fontSize:14,fontWeight:700,color:billReq?"#8b5cf6":ready?"var(--green)":o?"var(--accent)":"var(--text3)"}}, billReq?"Por cobrar":ready?"Listo ✓":o?"Ocupada":"Libre"),
-                  o&&h('span',{style:{fontSize:12,color:"var(--text3)"}}, lines.filter(l=>l.orderId===o.id).length+" platos")
+                  h('span',{style:{fontSize:14,fontWeight:700,color:stCol,animation:ready?"ecPulse 1.6s ease-in-out infinite":"none"}}, billReq?"Por cobrar":ready?"Listo ✓":o?"Ocupada":"Libre"),
+                  o&&h('span',{style:{fontSize:12,color:"var(--text3)"}}, lines.filter(l=>l.orderId===o.id).length+" platos · "+fmtCost(ttot))
                 );
               })
             )
@@ -6517,7 +6522,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
                       h('span',{style:{fontSize:14,color:"var(--text3)"}},"Total a cobrar"),
                       stnGross.service>0&&h('span',{style:{fontSize:11,color:"var(--text3)",display:"block"}},"incluye "+(stnSettings.serviceChargePct||10)+"% servicio")
                     ),
-                    h('span',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}},fmtCost(stnGross.total))),
+                    h('span',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)",color:"#fff"}},fmtCost(stnGross.total))),
                   unsent.length>0
                     ? h('button',{onClick:sendToKitchen,style:{width:"100%",minHeight:56,borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}}, "🔔 Enviar a cocina ("+unsent.reduce((s,l)=>s+l.qty,0)+")")
                     : myLines.length===0
@@ -6696,7 +6701,8 @@ function KitchenDisplay({data,setData,toast,onExit}){
                 h('div',null,
                   h('div',{style:{fontFamily:"var(--sora)",fontSize:22,fontWeight:800}},"Mesa "+(c.o.tableNum||"—")),
                   h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}},
-                    (c.o.code||"")+(c.o.pax?" · "+c.o.pax+" pers.":"")+(c.o.waiter?"  🙋 "+c.o.waiter:""))
+                    (c.o.code||"")+(c.o.pax?" · "+c.o.pax+" pers.":"")+(c.o.waiter?"  🙋 "+c.o.waiter:"")),
+                  (tab==="pend"&&c.ol.length>1)&&h('div',{style:{fontSize:12,fontWeight:700,color:"var(--green)",marginTop:3}}, c.ol.filter(l=>l.kds==="ready").length+"/"+c.ol.length+" listos")
                 ),
                 h('div',{style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
                   (tab==="pend"&&(now-c.sentAt)<45000)&&h('span',{style:{fontSize:12,fontWeight:800,color:"#fff",background:"var(--accent)",borderRadius:12,padding:"3px 9px",animation:"ecPulse 1s ease-in-out infinite"}},"NUEVO"),
