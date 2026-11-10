@@ -576,9 +576,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.18.2";
+const APP_VERSION = "4.18.3";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.3", date:"Nov 2026", notes:"Nuevo ajuste «Tiempo objetivo de cocina» en Config: defines en cuántos minutos esperas que salga una comanda (por defecto 15). Con eso, el reloj de cada pedido y los promedios de la Estación de cocina se pintan solos —verde mientras va dentro de tiempo, amarillo al acercarse (desde ~2/3 del objetivo) y rojo al superarlo— en vez de usar umbrales fijos. Así cada restaurante calibra la cocina a su propio ritmo."},
   {v:"4.18.2", date:"Nov 2026", notes:"La Estación de cocina ahora mide cuánto tarda cada comanda. Mientras se prepara ves el reloj vivo («hace 9 min») y, abajo, la hora exacta en que entró («Enviado 13:42»). Al marcarla lista, la tarjeta muestra «✓ Listo en 12 min» —el tiempo real que tomó— y ese dato también aparece en el historial de «Hoy» (⏱ 12 min). Arriba se agregó el indicador «Tiempo prom. prep», el promedio de preparación del día, para que el dueño vea de un vistazo qué tan rápida va la cocina."},
   {v:"4.18.1", date:"Nov 2026", notes:"Mejoras de uso en las estaciones. En la Estación de ventas, el mapa de mesas ahora muestra cuánto va consumiendo cada mesa (ej. «2 platos · S/ 133.10») de un vistazo, y las mesas con comida lista para servir parpadean suavemente en «Listo ✓» para que el mozo las note al toque. El «Total a cobrar» de la comanda se ve en blanco, bien resaltado sobre el resto. En la Estación de cocina, cada comanda con varios platos muestra su avance «1/2 listos», y el aviso «NUEVO» de las comandas recién llegadas ahora sí parpadea. El cobro en la mesa sigue desactivado por defecto (manda «Caja central»)."},
   {v:"4.18.0", date:"Nov 2026", notes:"La Estación de ventas ahora cierra el ciclo de la mesa. Con «Caja central» (por defecto), el mozo toca «💰 Pedir la cuenta» —viendo el total real a cobrar, con servicio e IGV incluidos— y la mesa pasa a una nueva pestaña «Cobrar» en Ventas & Caja, donde el cajero registra cuánto entró por Yape, efectivo y tarjeta (la suma debe cuadrar con el total) y cobra; eso descuenta el stock y cierra el pedido. Con «El mozo cobra en la mesa» (nuevo interruptor en Config → ¿Quién cobra?), el cobro con los medios de pago aparece directo en la estación. Como cada pedido guarda cómo se pagó, el Cuadre de caja se puede autocompletar con un toque desde los pagos reales del día. Además: al reabrir una mesa se recupera solo el mozo que ya la atendía (sin volver a preguntar), el total de la estación ya muestra el monto real con servicio, y se corrigió la «base imponible» del cuadre cuando hay cargo por servicio."},
@@ -881,7 +882,7 @@ function isFirstRun(data){
 }
 
 function getSettings(data){
-  const def={igvMode:"incluido",serviceCharge:false,serviceChargePct:10,foodCostTarget:30,restaurantName:"",ruc:"",cobraEnMesa:false};
+  const def={igvMode:"incluido",serviceCharge:false,serviceChargePct:10,foodCostTarget:30,restaurantName:"",ruc:"",cobraEnMesa:false,kitchenTargetMin:15};
   return{...def,...(data.settings||{})};
 }
 
@@ -6612,6 +6613,9 @@ function KitchenDisplay({data,setData,toast,onExit}){
   const firstRef=useRef(true);
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),20000); return ()=>clearInterval(t); },[]);
   const recipes=data.recipes||[], orders=data.orders||[], lines=data.orderLines||[];
+  const settings=getSettings(data);
+  const kTarget=Math.max(1,Math.round(+settings.kitchenTargetMin||15));
+  const kYellow=Math.max(1,Math.round(kTarget*0.66));
   const recName=id=>{ const r=recipes.find(x=>x.id===id); return r?r.name:id; };
   const beep=()=>{ try{ const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
     const ctx=new AC(), o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
@@ -6655,7 +6659,7 @@ function KitchenDisplay({data,setData,toast,onExit}){
     ?{...x,kds:"pending",readyAt:undefined}:x)}));
 
   const ageMin=t=>Math.max(0,Math.floor((now-t)/60000));
-  const ageColor=m=>m>=13?"var(--red)":m>=6?"var(--yellow)":"var(--green)";
+  const ageColor=m=>m>=kTarget?"var(--red)":m>=kYellow?"var(--yellow)":"var(--green)";
   const hhmm=ts=>{const d=new Date(ts);return String(d.getHours()).padStart(2,'0')+":"+String(d.getMinutes()).padStart(2,'0');};
   const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
     flex:1,padding:"16px",borderRadius:"var(--radius)",fontSize:18,fontWeight:800,cursor:"pointer",
@@ -6677,8 +6681,8 @@ function KitchenDisplay({data,setData,toast,onExit}){
     // Franja de estadísticas
     h('div',{style:{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}},
       [["Platos por hacer",platosPend,platosPend>0?"var(--accent)":"var(--text2)"],
-       ["Espera promedio",avgWait+" min",avgWait>=13?"var(--red)":avgWait>=6?"var(--yellow)":"var(--green)"],
-       ["Tiempo prom. prep",avgPrep!=null?avgPrep+" min":"—",avgPrep==null?"var(--text2)":avgPrep>=13?"var(--red)":avgPrep>=6?"var(--yellow)":"var(--green)"],
+       ["Espera promedio",avgWait+" min",ageColor(avgWait)],
+       ["Tiempo prom. prep",avgPrep!=null?avgPrep+" min":"—",avgPrep==null?"var(--text2)":ageColor(avgPrep)],
        ["Comandas hoy",todayKds.length,"var(--text2)"]].map(([lbl,val,col])=>
         h('div',{key:lbl,style:{flex:"1 1 120px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}},
           h('div',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)",color:col}},val),
@@ -9404,6 +9408,52 @@ function SettingsPage({data,setData,toast}){
         )
       )
     ),
+
+    // ── Tiempo objetivo de cocina ────────────────────────────────────────────
+    (()=>{ const kt=Math.max(1,Math.round(+form.kitchenTargetMin||15)); const ky=Math.max(1,Math.round(kt*0.66));
+    return h('div',{style:{marginBottom:24}},
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center"}},
+        "Tiempo objetivo de cocina",h(InfoTip,{text:"El tiempo que esperas que tome preparar una comanda. En la Estación de cocina, el reloj de cada pedido se pone verde mientras va dentro de tiempo, amarillo al acercarse y rojo cuando lo supera."})),
+      h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:12,lineHeight:1.5}},
+        "Define cuándo una comanda va 'en tiempo', 'por demorarse' o 'retrasada'. Afecta los colores del reloj y de los promedios en la Estación de cocina."),
+      h('div',{style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}},
+        [10,15,20,25,30].map(mins=>
+          h('button',{key:mins,onClick:()=>set("kitchenTargetMin",mins),style:{
+            padding:"8px 14px",borderRadius:"var(--radius-sm)",fontSize:13,fontWeight:700,cursor:"pointer",
+            border:`2px solid ${kt===mins?"var(--accent)":"var(--border)"}`,
+            background:kt===mins?"rgba(249,115,22,0.12)":"var(--surface)",
+            color:kt===mins?"var(--accent)":"var(--text2)",
+            transition:"all 0.15s"
+          }},mins+" min")
+        )
+      ),
+      h('div',{style:{
+        display:"flex",alignItems:"center",gap:10,
+        padding:"10px 14px",borderRadius:"var(--radius)",
+        border:"1px solid var(--border)",background:"var(--surface)"
+      }},
+        h('div',{style:{fontSize:12,color:"var(--text2)",flex:1}},
+          "Personalizado (5–90 min):"),
+        h('input',{type:"number",min:5,max:90,
+          value:form.kitchenTargetMin||15,
+          onChange:e=>set("kitchenTargetMin",Math.min(90,Math.max(5,+e.target.value||15))),
+          style:{width:64,padding:"6px 10px",borderRadius:"var(--radius-sm)",
+            fontSize:14,fontWeight:700,textAlign:"center",
+            border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text)"}
+        }),
+        h('span',{style:{fontSize:13,color:"var(--text2)"}},"min")
+      ),
+      h('div',{style:{
+        marginTop:10,padding:"10px 12px",borderRadius:"var(--radius)",
+        background:"rgba(249,115,22,0.06)",border:"1px solid rgba(249,115,22,0.2)",
+        fontSize:11,color:"var(--text2)",lineHeight:1.6
+      }},
+        h('span',{style:{color:"var(--accent)",fontWeight:700}},"Con objetivo "+kt+" min: "),
+        h('span',{style:{color:"var(--green)",fontWeight:700}},"Verde < "+ky+" min"),"  ·  ",
+        h('span',{style:{color:"var(--yellow)",fontWeight:700}},"Amarillo "+ky+"–"+kt+" min"),"  ·  ",
+        h('span',{style:{color:"var(--red)",fontWeight:700}},"Rojo ≥ "+kt+" min")
+      )
+    ); })(),
 
     // ── Objetivo de costo de alimentos ───────────────────────────────────────
     h('div',{style:{marginBottom:24}},
