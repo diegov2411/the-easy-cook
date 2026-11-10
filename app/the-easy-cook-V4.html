@@ -576,9 +576,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.18.1";
+const APP_VERSION = "4.18.2";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.2", date:"Nov 2026", notes:"La Estación de cocina ahora mide cuánto tarda cada comanda. Mientras se prepara ves el reloj vivo («hace 9 min») y, abajo, la hora exacta en que entró («Enviado 13:42»). Al marcarla lista, la tarjeta muestra «✓ Listo en 12 min» —el tiempo real que tomó— y ese dato también aparece en el historial de «Hoy» (⏱ 12 min). Arriba se agregó el indicador «Tiempo prom. prep», el promedio de preparación del día, para que el dueño vea de un vistazo qué tan rápida va la cocina."},
   {v:"4.18.1", date:"Nov 2026", notes:"Mejoras de uso en las estaciones. En la Estación de ventas, el mapa de mesas ahora muestra cuánto va consumiendo cada mesa (ej. «2 platos · S/ 133.10») de un vistazo, y las mesas con comida lista para servir parpadean suavemente en «Listo ✓» para que el mozo las note al toque. El «Total a cobrar» de la comanda se ve en blanco, bien resaltado sobre el resto. En la Estación de cocina, cada comanda con varios platos muestra su avance «1/2 listos», y el aviso «NUEVO» de las comandas recién llegadas ahora sí parpadea. El cobro en la mesa sigue desactivado por defecto (manda «Caja central»)."},
   {v:"4.18.0", date:"Nov 2026", notes:"La Estación de ventas ahora cierra el ciclo de la mesa. Con «Caja central» (por defecto), el mozo toca «💰 Pedir la cuenta» —viendo el total real a cobrar, con servicio e IGV incluidos— y la mesa pasa a una nueva pestaña «Cobrar» en Ventas & Caja, donde el cajero registra cuánto entró por Yape, efectivo y tarjeta (la suma debe cuadrar con el total) y cobra; eso descuenta el stock y cierra el pedido. Con «El mozo cobra en la mesa» (nuevo interruptor en Config → ¿Quién cobra?), el cobro con los medios de pago aparece directo en la estación. Como cada pedido guarda cómo se pagó, el Cuadre de caja se puede autocompletar con un toque desde los pagos reales del día. Además: al reabrir una mesa se recupera solo el mozo que ya la atendía (sin volver a preguntar), el total de la estación ya muestra el monto real con servicio, y se corrigió la «base imponible» del cuadre cuando hay cargo por servicio."},
   {v:"4.17.4", date:"Nov 2026", notes:"Arreglo importante para iPhone: a veces la app cargaba bien pero se quedaba atrás de la pantalla de carga con el mensaje «Abre en Safari», haciendo creer que no abría. Ahora la pantalla de carga se oculta por varias vías (no solo una que iOS suspende en segundo plano), así que la app aparece apenas está lista. En otros dispositivos todo sigue igual de rápido."},
@@ -6643,6 +6644,8 @@ function KitchenDisplay({data,setData,toast,onExit}){
   const todayKds=orders.filter(o=>o.date===today()).map(o=>({o,ol:lines.filter(l=>l.orderId===o.id&&l.kds)})).filter(x=>x.ol.length);
   const doneToday=todayKds.filter(x=>x.o.status==="closed"||x.ol.every(l=>l.kds==="ready"));
   const platosToday=todayKds.reduce((s,x)=>s+x.ol.reduce((a,l)=>a+l.qty,0),0);
+  const prepMins=todayKds.map(x=>{const sent=Math.min(...x.ol.map(l=>l.sentAt||0));const rys=x.ol.map(l=>l.readyAt||0);if(!sent||rys.some(r=>!r))return null;return Math.max(0,(Math.max(...rys)-sent)/60000);}).filter(v=>v!=null);
+  const avgPrep=prepMins.length?Math.round(prepMins.reduce((a,b)=>a+b,0)/prepMins.length):null;
 
   const toggleLine=l=>setData(d=>({...d,orderLines:d.orderLines.map(x=>x.id===l.id
     ?{...x,kds:x.kds==="ready"?"pending":"ready",readyAt:x.kds==="ready"?undefined:Date.now()}:x)}));
@@ -6653,6 +6656,7 @@ function KitchenDisplay({data,setData,toast,onExit}){
 
   const ageMin=t=>Math.max(0,Math.floor((now-t)/60000));
   const ageColor=m=>m>=13?"var(--red)":m>=6?"var(--yellow)":"var(--green)";
+  const hhmm=ts=>{const d=new Date(ts);return String(d.getHours()).padStart(2,'0')+":"+String(d.getMinutes()).padStart(2,'0');};
   const tabBtn=(id,txt)=>h('button',{onClick:()=>setTab(id),style:{
     flex:1,padding:"16px",borderRadius:"var(--radius)",fontSize:18,fontWeight:800,cursor:"pointer",
     fontFamily:"var(--sora)",border:"none",minHeight:60,
@@ -6674,6 +6678,7 @@ function KitchenDisplay({data,setData,toast,onExit}){
     h('div',{style:{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}},
       [["Platos por hacer",platosPend,platosPend>0?"var(--accent)":"var(--text2)"],
        ["Espera promedio",avgWait+" min",avgWait>=13?"var(--red)":avgWait>=6?"var(--yellow)":"var(--green)"],
+       ["Tiempo prom. prep",avgPrep!=null?avgPrep+" min":"—",avgPrep==null?"var(--text2)":avgPrep>=13?"var(--red)":avgPrep>=6?"var(--yellow)":"var(--green)"],
        ["Comandas hoy",todayKds.length,"var(--text2)"]].map(([lbl,val,col])=>
         h('div',{key:lbl,style:{flex:"1 1 120px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}},
           h('div',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)",color:col}},val),
@@ -6686,6 +6691,8 @@ function KitchenDisplay({data,setData,toast,onExit}){
           tab==="pend"&&h('div',{style:{fontSize:15,color:"var(--text3)",marginTop:6}},"Las comandas que el cajero envíe aparecerán aquí al instante."))
       : h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16,alignItems:"start"}},
           shown.map(c=>{ const m=ageMin(c.sentAt);
+            const readyMax=c.allReady?Math.max(...c.ol.map(l=>l.readyAt||0)):0;
+            const prepMin=(c.allReady&&readyMax)?Math.max(0,Math.round((readyMax-c.sentAt)/60000)):null;
             return h('div',{key:c.o.id,style:{background:"var(--surface)",
               border:"2px solid "+(c.allReady?"rgba(34,197,94,0.45)":"var(--border2)"),
               borderRadius:16,overflow:"hidden",display:"flex",flexDirection:"column"}},
@@ -6697,10 +6704,16 @@ function KitchenDisplay({data,setData,toast,onExit}){
                     (c.o.code||"")+(c.o.pax?" · "+c.o.pax+" pers.":"")+(c.o.waiter?"  🙋 "+c.o.waiter:"")),
                   (tab==="pend"&&c.ol.length>1)&&h('div',{style:{fontSize:12,fontWeight:700,color:"var(--green)",marginTop:3}}, c.ol.filter(l=>l.kds==="ready").length+"/"+c.ol.length+" listos")
                 ),
-                h('div',{style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
-                  (tab==="pend"&&(now-c.sentAt)<45000)&&h('span',{style:{fontSize:12,fontWeight:800,color:"#fff",background:"var(--accent)",borderRadius:12,padding:"3px 9px",animation:"ecPulse 1s ease-in-out infinite"}},"NUEVO"),
-                  h('div',{style:{fontSize:15,fontWeight:800,color:ageColor(m),padding:"6px 12px",borderRadius:20,
-                    background:"var(--bg)",border:"1px solid "+ageColor(m),whiteSpace:"nowrap"}}, m<1?"ahora":"hace "+m+" min")
+                h('div',{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}},
+                  h('div',{style:{display:"flex",alignItems:"center",gap:6}},
+                    (tab==="pend"&&(now-c.sentAt)<45000)&&h('span',{style:{fontSize:12,fontWeight:800,color:"#fff",background:"var(--accent)",borderRadius:12,padding:"3px 9px",animation:"ecPulse 1s ease-in-out infinite"}},"NUEVO"),
+                    c.allReady
+                      ? h('div',{style:{fontSize:15,fontWeight:800,color:"var(--green)",padding:"6px 12px",borderRadius:20,
+                          background:"var(--bg)",border:"1px solid var(--green)",whiteSpace:"nowrap"}}, prepMin!=null?("✓ Listo en "+prepMin+" min"):"✓ Listo")
+                      : h('div',{style:{fontSize:15,fontWeight:800,color:ageColor(m),padding:"6px 12px",borderRadius:20,
+                          background:"var(--bg)",border:"1px solid "+ageColor(m),whiteSpace:"nowrap"}}, m<1?"ahora":"hace "+m+" min")
+                  ),
+                  h('span',{style:{fontSize:11,color:"var(--text3)",whiteSpace:"nowrap"}},"Enviado "+hhmm(c.sentAt))
                 )
               ),
               h('div',{style:{flex:1}},
@@ -6745,11 +6758,13 @@ function KitchenDisplay({data,setData,toast,onExit}){
             : todayKds.slice().sort((a,b)=>Math.max(...b.ol.map(l=>l.sentAt||0))-Math.max(...a.ol.map(l=>l.sentAt||0))).map(x=>{
                 const ready=x.o.status==="closed"||x.ol.every(l=>l.kds==="ready");
                 const st=ready?{t:"Lista",c:"var(--green)",bg:"rgba(34,197,94,0.14)"}:{t:"En curso",c:"var(--yellow)",bg:"rgba(234,179,8,0.14)"};
+                const hSent=Math.min(...x.ol.map(l=>l.sentAt||0)), hRys=x.ol.map(l=>l.readyAt||0);
+                const hPrep=(hSent&&!hRys.some(r=>!r))?Math.max(0,Math.round((Math.max(...hRys)-hSent)/60000)):null;
                 return h('div',{key:x.o.id,style:{display:"flex",alignItems:"center",gap:12,padding:"12px",marginBottom:8,borderRadius:12,border:"1px solid var(--border)",background:"var(--surface2)"}},
                   h('span',{style:{fontSize:26,flexShrink:0}}, ready?"✅":"🔔"),
                   h('div',{style:{flex:1,minWidth:0}},
                     h('div',{style:{fontSize:16,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}, "Mesa "+(x.o.tableNum||"—")+" · "+(x.o.code||"")+(x.o.waiter?"  🙋 "+x.o.waiter:"")),
-                    h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}}, x.ol.reduce((s,l)=>s+l.qty,0)+" platos")),
+                    h('div',{style:{fontSize:13,color:"var(--text3)",marginTop:2}}, x.ol.reduce((s,l)=>s+l.qty,0)+" platos"+(hPrep!=null?" · ⏱ "+hPrep+" min":""))),
                   h('span',{style:{fontSize:12,fontWeight:800,color:st.c,background:st.bg,borderRadius:20,padding:"3px 11px",flexShrink:0}}, st.t)
                 );
               })
