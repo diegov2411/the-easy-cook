@@ -534,9 +534,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.3";
+const APP_VERSION = "4.7.4";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.4", date:"Nov 2026", notes:"En la pestaña Equipo ahora puedes administrar tus mozos: una sección «🙋 Mozos» lista los nombres que aparecen al elegir mozo en la Estación de ventas, con un botón para agregar y una ✕ para eliminar cada uno. Antes solo se podían crear sobre la marcha desde la estación; ahora se gestionan en un solo lugar. Eliminar un mozo no afecta los pedidos anteriores que ya tenían su nombre."},
   {v:"4.7.3", date:"Nov 2026", notes:"Nuevo ajuste «Tiempo objetivo de cocina» en Config: defines en cuántos minutos esperas que salga una comanda (por defecto 15). Con eso, el reloj de cada pedido y los promedios de la Estación de cocina se pintan solos —verde mientras va dentro de tiempo, amarillo al acercarse (desde ~2/3 del objetivo) y rojo al superarlo— en vez de usar umbrales fijos. Así cada restaurante calibra la cocina a su propio ritmo."},
   {v:"4.7.2", date:"Nov 2026", notes:"La Estación de cocina ahora mide cuánto tarda cada comanda. Mientras se prepara ves el reloj vivo («hace 9 min») y, abajo, la hora exacta en que entró («Enviado 13:42»). Al marcarla lista, la tarjeta muestra «✓ Listo en 12 min» —el tiempo real que tomó— y ese dato también aparece en el historial de «Hoy» (⏱ 12 min). Arriba se agregó el indicador «Tiempo prom. prep», el promedio de preparación del día, para que el dueño vea de un vistazo qué tan rápida va la cocina."},
   {v:"4.7.1", date:"Nov 2026", notes:"Mejoras de uso en las estaciones. En la Estación de ventas, el mapa de mesas ahora muestra cuánto va consumiendo cada mesa (ej. «2 platos · S/ 133.10») de un vistazo, y las mesas con comida lista para servir parpadean suavemente en «Listo ✓» para que el mozo las note al toque. El «Total a cobrar» de la comanda se ve en blanco, bien resaltado sobre el resto. En la Estación de cocina, cada comanda con varios platos muestra su avance «1/2 listos», y el aviso «NUEVO» de las comandas recién llegadas ahora sí parpadea. El cobro en la mesa sigue desactivado por defecto (manda «Caja central»)."},
@@ -8830,7 +8831,20 @@ function UsersPage({data,setData,toast,currentUser}){
   const [form,setForm]=useState({});
   const [confirmDel,setConfirmDel]=useState(null);
   const [showPin,setShowPin]=useState({});
+  const [newWaiter,setNewWaiter]=useState("");
   const users=data.users||[];
+  const waiters=data.waiters||[];
+
+  const addWaiter=()=>{
+    const n=newWaiter.trim(); if(!n)return;
+    if(waiters.some(w=>w.toLowerCase()===n.toLowerCase())){toast("Ese mozo ya existe","error");return;}
+    setData(d=>({...d,waiters:[...(d.waiters||[]),n]}));
+    setNewWaiter(""); toast("Mozo agregado ✓","success");
+  };
+  const delWaiter=name=>{
+    setData(d=>({...d,waiters:(d.waiters||[]).filter(w=>w!==name)}));
+    toast("Mozo eliminado","info");
+  };
 
   const openAdd=()=>{
     setEditUser(null);
@@ -8969,6 +8983,28 @@ function UsersPage({data,setData,toast,currentUser}){
           )
         );
       })
+    ),
+
+    // ── Mozos / servers for the selling station ──────────────────────────────
+    h('div',{style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"14px 16px",marginTop:16}},
+      h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:12,fontWeight:700,color:"var(--text2)"}},"🙋 MOZOS"),
+        h('div',{style:{fontSize:11,color:"var(--text3)"}},waiters.length+" mozo"+(waiters.length!==1?"s":""))
+      ),
+      h('div',{style:{fontSize:11,color:"var(--text3)",marginBottom:12,lineHeight:1.5}},
+        "Los nombres que aparecen al elegir mozo en la Estación de ventas. No necesitan PIN ni acceso a la app."),
+      waiters.length===0
+        ? h('div',{style:{fontSize:12,color:"var(--text3)",padding:"4px 0 12px"}},"Aún no hay mozos. Agrega el primero abajo.")
+        : h('div',{style:{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}},
+            waiters.map(w=>h('div',{key:w,style:{display:"inline-flex",alignItems:"center",gap:8,background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:20,padding:"6px 8px 6px 14px"}},
+              h('span',{style:{fontSize:13,fontWeight:600}},w),
+              h('button',{onClick:()=>delWaiter(w),title:"Eliminar "+w,style:{width:22,height:22,borderRadius:"50%",border:"none",background:"rgba(239,68,68,0.12)",color:"var(--red)",cursor:"pointer",fontSize:13,fontWeight:800,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}},"✕")
+            ))
+          ),
+      h('div',{style:{display:"flex",gap:8}},
+        h('input',{value:newWaiter,onChange:e=>setNewWaiter(e.target.value),onKeyDown:e=>{if(e.key==="Enter")addWaiter();},placeholder:"Nombre del mozo…",style:{flex:1,fontSize:15}}),
+        h(Btn,{onClick:addWaiter},"+ Agregar")
+      )
     ),
 
     // Add/Edit Modal — uses portal Modal so it's always viewport-centered
