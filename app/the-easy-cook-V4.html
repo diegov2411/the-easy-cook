@@ -576,9 +576,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.18.4";
+const APP_VERSION = "4.18.5";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.5", date:"Nov 2026", notes:"Nuevo reporte «👥 Mozos» en Reportes: el desempeño de cada mozo, con vista Semanal y Mensual y flechas para moverte entre períodos. Por cada mozo ves sus ventas totales, su porcentaje del total (ranking con 🥇🥈🥉), cuántas mesas atendió, su ticket promedio y los comensales. Cuenta solo pedidos cobrados; «Ventas» es lo cobrado al cliente (incluye servicio e IGV). Usa el mozo que ya se guarda en cada pedido, así que no hay que registrar nada extra."},
   {v:"4.18.4", date:"Nov 2026", notes:"En la pestaña Equipo ahora puedes administrar tus mozos: una sección «🙋 Mozos» lista los nombres que aparecen al elegir mozo en la Estación de ventas, con un botón para agregar y una ✕ para eliminar cada uno. Antes solo se podían crear sobre la marcha desde la estación; ahora se gestionan en un solo lugar. Eliminar un mozo no afecta los pedidos anteriores que ya tenían su nombre."},
   {v:"4.18.3", date:"Nov 2026", notes:"Nuevo ajuste «Tiempo objetivo de cocina» en Config: defines en cuántos minutos esperas que salga una comanda (por defecto 15). Con eso, el reloj de cada pedido y los promedios de la Estación de cocina se pintan solos —verde mientras va dentro de tiempo, amarillo al acercarse (desde ~2/3 del objetivo) y rojo al superarlo— en vez de usar umbrales fijos. Así cada restaurante calibra la cocina a su propio ritmo."},
   {v:"4.18.2", date:"Nov 2026", notes:"La Estación de cocina ahora mide cuánto tarda cada comanda. Mientras se prepara ves el reloj vivo («hace 9 min») y, abajo, la hora exacta en que entró («Enviado 13:42»). Al marcarla lista, la tarjeta muestra «✓ Listo en 12 min» —el tiempo real que tomó— y ese dato también aparece en el historial de «Hoy» (⏱ 12 min). Arriba se agregó el indicador «Tiempo prom. prep», el promedio de preparación del día, para que el dueño vea de un vistazo qué tan rápida va la cocina."},
@@ -8656,6 +8657,89 @@ function FullReport({data}){
   );
 }
 
+// ─── VENTAS POR MOZO — desempeño por servidor, semanal o mensual ──────────────
+function MozoReport({data}){
+  const {orders=[],orderLines=[],recipes=[]}=data;
+  const settings=getSettings(data);
+  const [mode,setMode]=useState("week");   // week | month
+  const [offset,setOffset]=useState(0);
+  const MESES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+
+  const priceOf=id=>{const r=recipes.find(x=>x.id===id);return r?(r.price||0):0;};
+  const orderBase=o=>orderLines.filter(l=>l.orderId===o.id).reduce((s,l)=>s+priceOf(l.recipeId)*l.qty,0)+(o.priceAdj||0);
+  const grossOf=o=>(o.status==="closed"&&typeof o.total==="number")?o.total:orderGrossTotal(orderBase(o),settings).total;
+
+  const {start,end}= mode==="week"?weekBounds(offset):monthBounds(offset);
+  const rangeLabel= mode==="week"
+    ? (offset===0?"Esta semana":fmtDate(start)+" — "+fmtDate(end))
+    : (offset===0?"Este mes":MESES[+start.slice(5,7)-1]+" "+start.slice(0,4));
+
+  const closed=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
+  const map={};
+  closed.forEach(o=>{const key=(o.waiter||"").trim()||"Sin mozo";
+    if(!map[key])map[key]={name:key,mesas:0,ventas:0,pax:0};
+    map[key].mesas++; map[key].ventas+=grossOf(o); map[key].pax+=(o.pax||0);});
+  const rows=Object.values(map).map(r=>({...r,ticket:r.mesas?r.ventas/r.mesas:0})).sort((a,b)=>b.ventas-a.ventas);
+  const totalVentas=rows.reduce((s,r)=>s+r.ventas,0);
+  const totalMesas=rows.reduce((s,r)=>s+r.mesas,0);
+  const maxVentas=rows.reduce((m,r)=>Math.max(m,r.ventas),0);
+  const MEDAL=["🥇","🥈","🥉"];
+
+  const modeBtn=(id,txt)=>h('button',{onClick:()=>{setMode(id);setOffset(0);},style:{
+    flex:1,padding:"10px",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
+    fontFamily:"var(--sans)",fontSize:13,fontWeight:700,
+    borderColor:mode===id?"var(--accent)":"var(--border2)",
+    background:mode===id?"rgba(249,115,22,0.15)":"var(--surface2)",
+    color:mode===id?"var(--accent)":"var(--text2)"}},txt);
+
+  return h('div',{className:"slide-up"},
+    h('div',{style:{display:"flex",gap:8,marginBottom:12}},
+      modeBtn("week","📅 Semanal"),
+      modeBtn("month","🗓 Mensual")
+    ),
+    // Period navigator
+    h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:14,
+      background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"8px 10px"}},
+      h('button',{onClick:()=>setOffset(o=>o-1),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,width:40,height:40,fontSize:18,color:"var(--text2)",cursor:"pointer"}},"‹"),
+      h('div',{style:{textAlign:"center",flex:1,minWidth:0}},
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:800}},rangeLabel),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}}, fmtCost(totalVentas)+" · "+totalMesas+" mesa"+(totalMesas!==1?"s":""))
+      ),
+      h('button',{onClick:()=>setOffset(o=>Math.min(0,o+1)),disabled:offset>=0,style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,width:40,height:40,fontSize:18,color:offset>=0?"var(--text3)":"var(--text2)",cursor:offset>=0?"not-allowed":"pointer",opacity:offset>=0?0.4:1}},"›")
+    ),
+    rows.length===0
+      ? h('div',{style:{textAlign:"center",color:"var(--text3)",padding:"3rem 1rem"}},
+          h('div',{style:{fontSize:44,marginBottom:10}},"🙋"),
+          h('div',{style:{fontSize:15,fontWeight:600,color:"var(--text2)"}},"Sin ventas en este período"),
+          h('div',{style:{fontSize:13,marginTop:6}},"Los pedidos cobrados con un mozo asignado aparecerán aquí."))
+      : h('div',{style:{display:"flex",flexDirection:"column",gap:10}},
+          rows.map((r,i)=>h('div',{key:r.name,style:{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:"14px 16px"}},
+            h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}},
+              h('div',{style:{display:"flex",alignItems:"center",gap:10,minWidth:0}},
+                h('span',{style:{fontSize:20,width:26,textAlign:"center",flexShrink:0}}, MEDAL[i]||"🙋"),
+                h('div',{style:{minWidth:0}},
+                  h('div',{style:{fontFamily:"var(--sora)",fontSize:16,fontWeight:800,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}, r.name),
+                  h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}}, totalVentas>0?Math.round(r.ventas/totalVentas*100)+"% de las ventas":"")
+                )
+              ),
+              h('div',{style:{fontFamily:"var(--sora)",fontSize:19,fontWeight:800,color:"var(--accent)",flexShrink:0}}, fmtCost(r.ventas))
+            ),
+            // Share bar
+            h('div',{style:{height:6,borderRadius:4,background:"var(--surface2)",overflow:"hidden",marginBottom:10}},
+              h('div',{style:{height:"100%",width:(maxVentas>0?Math.round(r.ventas/maxVentas*100):0)+"%",background:"var(--accent)",borderRadius:4}})
+            ),
+            h('div',{style:{display:"flex",gap:16,fontSize:12,color:"var(--text2)",flexWrap:"wrap"}},
+              h('span',null,h('b',{style:{color:"var(--text)"}},r.mesas)," mesas"),
+              h('span',null,"Ticket prom. ",h('b',{style:{color:"var(--text)"}},fmtCost(r.ticket))),
+              r.pax>0&&h('span',null,h('b',{style:{color:"var(--text)"}},r.pax)," comensales")
+            )
+          ))
+        ),
+    h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:14,lineHeight:1.5}},
+      "Cuenta solo pedidos cobrados (cerrados). «Ventas» es el total cobrado al cliente (incluye servicio e IGV). Los pedidos sin mozo asignado se agrupan en «Sin mozo».")
+  );
+}
+
 function Reports({data}){
   const [tab,setTab]=useState("full");
   useEffect(()=>{injectPrintStyles();},[]);
@@ -8672,6 +8756,7 @@ function Reports({data}){
           tabs:[
             {id:"full",label:"📄 Informe completo"},
             {id:"weekly",label:"📅 Semanal"},
+            {id:"mozos",label:"👥 Mozos"},
             {id:"trend",label:"📈 Costos"},
           ],
           active:tab,setActive:setTab
@@ -8689,6 +8774,7 @@ function Reports({data}){
     ),
     tab==="full"&&h(FullReport,{data}),
     tab==="weekly"&&h(WeeklyReport,{data}),
+    tab==="mozos"&&h(MozoReport,{data}),
     tab==="trend"&&h(IngredientTrend,{data})
   );
 }
