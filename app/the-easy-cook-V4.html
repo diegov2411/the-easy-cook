@@ -575,9 +575,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.17.4";
+const APP_VERSION = "4.18.0";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.0", date:"Nov 2026", notes:"La Estación de ventas ahora cierra el ciclo de la mesa. Con «Caja central» (por defecto), el mozo toca «💰 Pedir la cuenta» —viendo el total real a cobrar, con servicio e IGV incluidos— y la mesa pasa a una nueva pestaña «Cobrar» en Ventas & Caja, donde el cajero registra cuánto entró por Yape, efectivo y tarjeta (la suma debe cuadrar con el total) y cobra; eso descuenta el stock y cierra el pedido. Con «El mozo cobra en la mesa» (nuevo interruptor en Config → ¿Quién cobra?), el cobro con los medios de pago aparece directo en la estación. Como cada pedido guarda cómo se pagó, el Cuadre de caja se puede autocompletar con un toque desde los pagos reales del día. Además: al reabrir una mesa se recupera solo el mozo que ya la atendía (sin volver a preguntar), el total de la estación ya muestra el monto real con servicio, y se corrigió la «base imponible» del cuadre cuando hay cargo por servicio."},
   {v:"4.17.4", date:"Nov 2026", notes:"Arreglo importante para iPhone: a veces la app cargaba bien pero se quedaba atrás de la pantalla de carga con el mensaje «Abre en Safari», haciendo creer que no abría. Ahora la pantalla de carga se oculta por varias vías (no solo una que iOS suspende en segundo plano), así que la app aparece apenas está lista. En otros dispositivos todo sigue igual de rápido."},
   {v:"4.17.3", date:"Nov 2026", notes:"En celulares y tablets, al tocar 📝 para agregar un comentario o 👥 para el número de personas, el teclado aparece solo y el cursor queda listo para escribir —sin un toque extra. Además puedes presionar Enter para guardar."},
   {v:"4.17.2", date:"Nov 2026", notes:"Estación de ventas a dos columnas: a la izquierda las mesas (que se convierten en la carta al elegir mesa y mozo) y a la derecha la comanda siempre visible, con los botones para agregar comentario, sumar/restar platos y enviar a cocina. En tablet y escritorio ves la carta y la comanda al mismo tiempo; en celular se apilan automáticamente para que todo siga cómodo."},
@@ -877,7 +878,7 @@ function isFirstRun(data){
 }
 
 function getSettings(data){
-  const def={igvMode:"incluido",serviceCharge:false,serviceChargePct:10,foodCostTarget:30,restaurantName:"",ruc:""};
+  const def={igvMode:"incluido",serviceCharge:false,serviceChargePct:10,foodCostTarget:30,restaurantName:"",ruc:"",cobraEnMesa:false};
   return{...def,...(data.settings||{})};
 }
 
@@ -913,6 +914,42 @@ function orderGrossTotal(baseTotal, settings){
     return{net:baseTotal, igv:igvAmt, service:serviceAmt, total:gross+serviceAmt};
   }
   return{net:baseTotal/1.18, igv:igvAmt, service:serviceAmt, total:baseTotal+serviceAmt};
+}
+
+// Closes an order: discounts stock, snapshots totals, records how it was paid.
+// Pure helper (takes current data `d`), reused by Ventas, the selling station and caja.
+function computeOrderClose(d, ord, payment){
+  let prods=[...d.products];
+  let subs=[...(d.subRecipes||[])];
+  d.orderLines.filter(l=>l.orderId===ord.id).forEach(line=>{
+    const bomLines=d.bom.filter(b=>b.recipeId===line.recipeId);
+    bomLines.forEach(b=>{
+      if(b.type==="subrecipe"&&b.subRecipeId){
+        const needed=b.qty*line.qty;
+        subs=subs.map(s=>s.id===b.subRecipeId?{...s,stock:(s.stock||0)-needed}:s);
+      } else if(b.productId){
+        prods=prods.map(p=>p.id===b.productId?{...p,stock:(p.stock||0)-b.qty*line.qty}:p);
+      }
+    });
+  });
+  const settings=getSettings(d);
+  const baseTotal=d.orderLines.filter(l=>l.orderId===ord.id)
+    .reduce((s,l)=>{const r=(d.recipes||[]).find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0)
+    +(ord.priceAdj||0);
+  const breakdown=orderGrossTotal(baseTotal,settings);
+  const pay=payment?{yape:+payment.yape||0,cash:+payment.cash||0,card:+payment.card||0}:(ord.payment||null);
+  const closedOrder={...ord,status:"closed",billRequested:false,
+    subtotal:breakdown.net,
+    igvAmount:breakdown.igv,
+    serviceAmount:breakdown.service,
+    total:breakdown.total,
+    igvMode:settings.igvMode,
+    serviceCharge:settings.serviceCharge,
+    serviceChargePct:settings.serviceChargePct||10,
+    payment:pay,
+    closedAt:Date.now(),
+  };
+  return {products:prods,subRecipes:subs,closedOrder};
 }
 
 // Food cost target helpers
@@ -4584,7 +4621,7 @@ function Sales({data,setData,toast,currentUser,notify=()=>{}}){
         .reduce((s,l)=>{const r=(d.recipes||[]).find(r=>r.id===l.recipeId);return s+(r?r.price*l.qty:0);},0)
         +(ord.priceAdj||0);
       const breakdown=orderGrossTotal(baseTotal,settings);
-      const closedOrder={...ord,status:"closed",
+      const closedOrder={...ord,status:"closed",billRequested:false,payment:ord.payment||null,
         subtotal:breakdown.net,
         igvAmount:breakdown.igv,
         serviceAmount:breakdown.service,
@@ -5693,7 +5730,7 @@ function PaymentRecon({data,setData,toast}){
       // IGV breakdown for accountant
       _settings.igvMode!=="ninguno"&&orderCount>0&&(()=>{
         const dayIgv=dayOrders.reduce((s,o)=>s+(o.igvAmount!==undefined?o.igvAmount:igvFromGross(o.total!==undefined?o.total:orderGrossTotal(linesOf(orderLines,o.id).reduce((ss,l)=>{const r=recipeById(recipes,l.recipeId);return ss+(r?r.price*l.qty:0);},0)+(o.priceAdj||0),_settings).total,"incluido")),0);
-        const dayNet=easyTotal-dayIgv;
+        const dayNet=dayOrders.reduce((s,o)=>s+(o.subtotal!==undefined?o.subtotal:orderGrossTotal(linesOf(orderLines,o.id).reduce((ss,l)=>{const r=recipeById(recipes,l.recipeId);return ss+(r?r.price*l.qty:0);},0)+(o.priceAdj||0),_settings).net),0);
         return h('div',{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(249,115,22,0.25)",display:"flex",gap:16}},
           h('div',null,
             h('div',{style:{fontSize:10,color:"var(--text3)",marginBottom:2}},"BASE IMPONIBLE"),
@@ -5706,6 +5743,17 @@ function PaymentRecon({data,setData,toast}){
         );
       })()
     ),
+
+    // One-tap autofill from payments already recorded per ticket (station/caja collect)
+    (()=>{
+      const ap={yape:0,cash:0,card:0}; dayOrders.forEach(o=>{if(o.payment){ap.yape+=+o.payment.yape||0;ap.cash+=+o.payment.cash||0;ap.card+=+o.payment.card||0;}});
+      const apSum=ap.yape+ap.cash+ap.card;
+      return apSum>0.005&&h('button',{onClick:()=>{setForm({yape:ap.yape?String(ap.yape):"",cash:ap.cash?String(ap.cash):"",card:ap.card?String(ap.card):""});setSaved(false);},
+        style:{width:"100%",textAlign:"left",marginBottom:12,background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:"var(--radius)",padding:"12px 14px",cursor:"pointer"}},
+        h('div',{style:{fontSize:13,fontWeight:700,color:"var(--green)"}},"💳 Usar pagos registrados por ticket"),
+        h('div',{style:{fontSize:11,color:"var(--text2)",marginTop:3}},"Yape "+fmtCost(ap.yape)+" · Efectivo "+fmtCost(ap.cash)+" · Tarjeta "+fmtCost(ap.card))
+      );
+    })(),
 
     // Payment method inputs
     h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:600,marginBottom:10}},"Ingresos por medio de pago"),
@@ -6300,6 +6348,8 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
   const recPrice=id=>{const r=recById(id);return r?(r.price||0):0;};
   const cartTotal=myLines.reduce((s,l)=>s+recPrice(l.recipeId)*l.qty,0);
   const unsent=myLines.filter(l=>!l.kds);
+  const stnSettings=getSettings(data);
+  const stnGross=orderGrossTotal(cartTotal+((order&&order.priceAdj)||0),stnSettings);
   const nextCode=()=>{const nums=orders.map(o=>parseInt(String(o.code||"").replace(/\D/g,""))||0);return "#"+String((nums.length?Math.max(...nums):0)+1).padStart(3,"0");};
 
   const openByTable={}; orders.filter(o=>o.status==="open").forEach(o=>{openByTable[o.tableNum]=o;});
@@ -6337,6 +6387,9 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
     setData(d=>({...d,orderLines:d.orderLines.map(l=>(l.orderId===order.id&&!l.kds)?{...l,kds:"pending",sentAt:ts}:l)}));
     toast("Comanda enviada a cocina 🔔","success"); setShowCart(false);
   };
+  const requestBill=(o)=>{ if(!o)return; setData(d=>({...d,orders:d.orders.map(x=>x.id===o.id?{...x,billRequested:true,billAt:Date.now()}:x)})); toast("Cuenta pedida — pásala a caja 💰","success"); };
+  const undoBill=(o)=>{ if(!o)return; setData(d=>({...d,orders:d.orders.map(x=>x.id===o.id?{...x,billRequested:false}:x)})); };
+  const closeStationOrder=(o,payment)=>{ if(!o)return; setData(d=>{const r=computeOrderClose(d,o,payment);return {...d,products:r.products,subRecipes:r.subRecipes,orders:d.orders.map(x=>x.id===o.id?r.closedOrder:x)};}); toast("Mesa "+o.tableNum+" cobrada ✓","success"); setTableNum(null); };
 
   const nq=q.trim().toLowerCase();
   const dishes=recipes.filter(r=>(cat==="all"||r.category===cat)&&(!nq||(r.name||"").toLowerCase().includes(nq)));
@@ -6364,13 +6417,13 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
             h('div',{style:{fontSize:15,color:"var(--text3)",marginBottom:12}},"Toca una mesa para tomar o continuar su pedido"),
             h('div',{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:12}},
               Array.from({length:maxTable},(_,i)=>i+1).map(n=>{
-                const o=openByTable[n], ready=o&&tableReady(o);
-                const bd=ready?"var(--green)":o?"var(--accent)":"var(--border2)";
-                return h('button',{key:n,onClick:()=>{ setTableNum(n); if(!waiterName) setMozoModal(true); },style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
-                  background:ready?"rgba(34,197,94,0.12)":o?"rgba(249,115,22,0.12)":"var(--surface)",
+                const o=openByTable[n], ready=o&&tableReady(o), billReq=o&&o.billRequested;
+                const bd=billReq?"#8b5cf6":ready?"var(--green)":o?"var(--accent)":"var(--border2)";
+                return h('button',{key:n,onClick:()=>{ setTableNum(n); const ow=o&&o.waiter; if(ow){ setWaiterName(ow); } else if(!waiterName){ setMozoModal(true); } },style:{minHeight:112,borderRadius:16,border:"2px solid "+bd,cursor:"pointer",
+                  background:billReq?"rgba(139,92,246,0.12)":ready?"rgba(34,197,94,0.12)":o?"rgba(249,115,22,0.12)":"var(--surface)",
                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}},
                   h('span',{style:{fontFamily:"var(--sora)",fontSize:30,fontWeight:800}},n),
-                  h('span',{style:{fontSize:14,fontWeight:700,color:ready?"var(--green)":o?"var(--accent)":"var(--text3)"}}, ready?"Listo ✓":o?"Ocupada":"Libre"),
+                  h('span',{style:{fontSize:14,fontWeight:700,color:billReq?"#8b5cf6":ready?"var(--green)":o?"var(--accent)":"var(--text3)"}}, billReq?"Por cobrar":ready?"Listo ✓":o?"Ocupada":"Libre"),
                   o&&h('span',{style:{fontSize:12,color:"var(--text3)"}}, lines.filter(l=>l.orderId===o.id).length+" platos")
                 );
               })
@@ -6443,11 +6496,23 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
                 ),
                 h('div',{style:{padding:12,borderTop:"1px solid var(--border)",flexShrink:0,paddingBottom:"calc(12px + env(safe-area-inset-bottom,0px))"}},
                   h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
-                    h('span',{style:{fontSize:14,color:"var(--text3)"}},"Total"),
-                    h('span',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}},fmtCost(cartTotal))),
+                    h('div',null,
+                      h('span',{style:{fontSize:14,color:"var(--text3)"}},"Total a cobrar"),
+                      stnGross.service>0&&h('span',{style:{fontSize:11,color:"var(--text3)",display:"block"}},"incluye "+(stnSettings.serviceChargePct||10)+"% servicio")
+                    ),
+                    h('span',{style:{fontSize:22,fontWeight:800,fontFamily:"var(--sora)"}},fmtCost(stnGross.total))),
                   unsent.length>0
                     ? h('button',{onClick:sendToKitchen,style:{width:"100%",minHeight:56,borderRadius:12,border:"none",background:"var(--accent)",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}}, "🔔 Enviar a cocina ("+unsent.reduce((s,l)=>s+l.qty,0)+")")
-                    : myLines.length>0&&h('div',{style:{textAlign:"center",color:"var(--green)",fontSize:14,fontWeight:700,padding:"10px"}},"✓ Todo enviado a cocina")
+                    : myLines.length===0
+                      ? null
+                      : stnSettings.cobraEnMesa
+                        ? h(CollectForm,{total:stnGross.total,onCollect:(payment)=>closeStationOrder(order,payment)})
+                        : (order&&order.billRequested)
+                          ? h('div',null,
+                              h('div',{style:{textAlign:"center",color:"#8b5cf6",fontSize:15,fontWeight:800,padding:"6px 0 10px"}},"🧾 Cuenta pedida — pasa a caja"),
+                              h('button',{onClick:()=>undoBill(order),style:{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,color:"var(--text2)",cursor:"pointer"}},"Deshacer")
+                            )
+                          : h('button',{onClick:()=>requestBill(order),style:{width:"100%",minHeight:56,borderRadius:12,border:"none",background:"#8b5cf6",color:"#fff",fontSize:18,fontWeight:800,fontFamily:"var(--sora)",cursor:"pointer"}}, "💰 Pedir la cuenta")
                 )
               )
         )
@@ -6689,12 +6754,77 @@ function KitchenDisplay({data,setData,toast,onExit}){
 }
 
 // ─── SALES & CAJA COMBINED ────────────────────────────────────────────────────
+// Split-tender collect form: amounts per method must sum to the total before "Cobrar".
+function CollectForm({total,onCollect}){
+  const [p,setP]=useState({yape:"",cash:"",card:""});
+  const y=+p.yape||0,c=+p.cash||0,t=+p.card||0;
+  const sum=Math.round((y+c+t)*100)/100;
+  const rem=Math.round((total-sum)*100)/100;
+  const ok=Math.abs(rem)<0.005&&sum>0;
+  const methods=[{k:"yape",label:"Yape",icon:"💜"},{k:"cash",label:"Efectivo",icon:"💵"},{k:"card",label:"Tarjeta",icon:"💳"}];
+  const setOne=(k,v)=>setP(prev=>({...prev,[k]:v}));
+  const fillRest=(k)=>setP(prev=>{const others=methods.filter(m=>m.k!==k).reduce((s,m)=>s+(+prev[m.k]||0),0);const left=Math.round((total-others)*100)/100;return {...prev,[k]:left>0?String(left):""};});
+  return h('div',null,
+    h('div',{style:{display:"flex",flexDirection:"column",gap:7,marginBottom:8}},
+      methods.map(m=>h('div',{key:m.k,style:{display:"flex",alignItems:"center",gap:8}},
+        h('span',{style:{fontSize:17,width:24,textAlign:"center"}},m.icon),
+        h('input',{type:"number",inputMode:"decimal",min:"0",step:"0.01",value:p[m.k],onChange:e=>setOne(m.k,e.target.value),placeholder:m.label,style:{flex:1,fontSize:16}}),
+        h('button',{onClick:()=>fillRest(m.k),style:{fontSize:11,fontWeight:700,padding:"8px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text2)",cursor:"pointer",whiteSpace:"nowrap"}},"Todo")
+      ))
+    ),
+    h('div',{style:{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginBottom:8,color:ok?"var(--green)":(Math.abs(rem)<0.005?"var(--text3)":(rem>0?"var(--red)":"var(--blue)"))}},
+      h('span',null, ok?"✓ Cuadra":(rem>0?"Falta":"Sobra")),
+      h('span',null, ok?fmtCost(total):fmtCost(Math.abs(rem)))
+    ),
+    h('button',{disabled:!ok,onClick:()=>onCollect({yape:y,cash:c,card:t}),style:{width:"100%",minHeight:52,borderRadius:12,border:"none",background:ok?"var(--green)":"var(--surface2)",color:ok?"#fff":"var(--text3)",fontSize:17,fontWeight:800,fontFamily:"var(--sora)",cursor:ok?"pointer":"not-allowed"}}, "✓ Cobrar "+fmtCost(total))
+  );
+}
+
+// Caja collection: tables the mozo marked "por cobrar", waiting for the cashier to charge.
+function CollectStation({data,setData,toast,currentUser}){
+  const {orders=[],orderLines=[],recipes=[]}=data;
+  const settings=getSettings(data);
+  const recName=id=>{const r=recipes.find(x=>x.id===id);return r?r.name:id;};
+  const pending=orders.filter(o=>o.status==="open"&&o.billRequested).sort((a,b)=>(a.billAt||0)-(b.billAt||0));
+  const grossOf=o=>{const base=orderLines.filter(l=>l.orderId===o.id).reduce((s,l)=>{const r=recipes.find(x=>x.id===l.recipeId);return s+(r?r.price*l.qty:0);},0)+(o.priceAdj||0);return orderGrossTotal(base,settings).total;};
+  const collect=(o,payment)=>{
+    setData(d=>{const r=computeOrderClose(d,o,payment);return {...d,products:r.products,subRecipes:r.subRecipes,orders:d.orders.map(x=>x.id===o.id?r.closedOrder:x)};});
+    toast("Mesa "+o.tableNum+" cobrada ✓","success");
+  };
+  if(pending.length===0) return h('div',{className:"slide-up",style:{textAlign:"center",color:"var(--text3)",padding:"3rem 1rem"}},
+    h('div',{style:{fontSize:44,marginBottom:10}},"🪑"),
+    h('div',{style:{fontSize:15,fontWeight:600,color:"var(--text2)"}},"No hay mesas por cobrar"),
+    h('div',{style:{fontSize:13,marginTop:6}},"Cuando un mozo pida la cuenta de una mesa, aparecerá aquí lista para cobrar.")
+  );
+  return h('div',{className:"slide-up",style:{display:"flex",flexDirection:"column",gap:12}},
+    pending.map(o=>{
+      const total=grossOf(o);
+      const ol=orderLines.filter(l=>l.orderId===o.id);
+      return h('div',{key:o.id,style:{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"14px 16px"}},
+        h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:10}},
+          h('div',null,
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:17,fontWeight:800}},"Mesa "+o.tableNum),
+            h('div',{style:{fontSize:12,color:"var(--text3)",marginTop:2}}, (o.code||"")+(o.pax?" · "+o.pax+" pers.":"")+(o.waiter?" · 🙋 "+o.waiter:""))
+          ),
+          h('div',{style:{textAlign:"right"}},
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:20,fontWeight:800,color:"var(--accent)"}},fmtCost(total)),
+            settings.serviceCharge&&h('div',{style:{fontSize:10,color:"var(--text3)"}},"incl. "+(settings.serviceChargePct||10)+"% serv.")
+          )
+        ),
+        h('div',{style:{fontSize:12,color:"var(--text2)",marginBottom:12,lineHeight:1.5}}, ol.map(l=>(l.qty>1?l.qty+"× ":"")+recName(l.recipeId)).join(" · ")),
+        h(CollectForm,{total,onCollect:(payment)=>collect(o,payment)})
+      );
+    })
+  );
+}
+
 function SalesRecon({data,setData,toast,currentUser}){
   const [tab,setTab]=useState("sales");
   const discCount=(data.orders||[]).filter(o=>(o.priceAdj||0)<0).length;
+  const cobrarCount=(data.orders||[]).filter(o=>o.status==="open"&&o.billRequested).length;
   return h('div',{className:"slide-up"},
     h('div',{className:"ec-tabs",style:{display:"flex",gap:6,marginBottom:16,overflowX:"auto"}},
-      [{id:"sales",icon:"🧾",label:"Ventas"},{id:"payrecon",icon:"💰",label:"Caja"},{id:"descuentos",icon:"🏷",label:"Descuentos"+(discCount>0?" ("+discCount+")":"")}]
+      [{id:"sales",icon:"🧾",label:"Ventas"},{id:"cobrar",icon:"💵",label:"Cobrar"+(cobrarCount>0?" ("+cobrarCount+")":"")},{id:"payrecon",icon:"💰",label:"Caja"},{id:"descuentos",icon:"🏷",label:"Descuentos"+(discCount>0?" ("+discCount+")":"")}]
         .map(t=>h('button',{key:t.id,onClick:()=>setTab(t.id),style:{
           flex:"1 1 auto",padding:"9px 12px",borderRadius:"var(--radius-sm)",border:"1px solid",cursor:"pointer",
           fontFamily:"var(--sans)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
@@ -6704,6 +6834,7 @@ function SalesRecon({data,setData,toast,currentUser}){
           t.icon+" "+t.label))
     ),
     tab==="sales"&&h(Sales,{data,setData,toast,currentUser}),
+    tab==="cobrar"&&h(CollectStation,{data,setData,toast,currentUser}),
     tab==="payrecon"&&h(PaymentRecon,{data,setData,toast}),
     tab==="descuentos"&&h(DiscountsTab,{data})
   );
@@ -9223,6 +9354,32 @@ function SettingsPage({data,setData,toast}){
             style:{width:52,padding:"5px 8px",borderRadius:"var(--radius-sm)",fontSize:12,
               border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text)",
               textAlign:"center"},placeholder:"otro"})
+        )
+      )
+    ),
+
+    // ── ¿Quién cobra? ─────────────────────────────────────────────────────────
+    h('div',{style:{marginBottom:24}},
+      h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:4}},
+        "¿Quién cobra a la mesa?"),
+      h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:12,lineHeight:1.5}},
+        "Caja central: el mozo toca 'Pedir la cuenta' y el cajero cobra en la pestaña 'Cobrar'. Mozo en mesa: el mozo cobra directo desde la estación de ventas."),
+      h('div',{style:{
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        padding:"14px 16px",borderRadius:"var(--radius)",
+        border:`2px solid ${form.cobraEnMesa?"var(--accent)":"var(--border)"}`,
+        background:form.cobraEnMesa?"rgba(249,115,22,0.06)":"var(--surface)",cursor:"pointer"
+      },onClick:()=>set("cobraEnMesa",!form.cobraEnMesa)},
+        h('div',null,
+          h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:600,
+            color:form.cobraEnMesa?"var(--accent)":"var(--text)"}},
+            form.cobraEnMesa?"El mozo cobra en la mesa":"Caja central"),
+          h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:2}},
+            form.cobraEnMesa?"El cobro aparece en la estación de ventas":"El mozo pide la cuenta · el cajero cobra en 'Cobrar'")
+        ),
+        h('div',{style:{width:44,height:24,borderRadius:12,flexShrink:0,
+          background:form.cobraEnMesa?"var(--accent)":"var(--border2)",position:"relative",transition:"background 0.2s"}},
+          h('div',{style:{position:"absolute",top:3,left:form.cobraEnMesa?20:3,width:18,height:18,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 4px rgba(0,0,0,0.3)",transition:"left 0.2s"}})
         )
       )
     ),
