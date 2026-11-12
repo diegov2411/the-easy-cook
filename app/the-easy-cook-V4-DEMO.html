@@ -534,9 +534,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.7";
+const APP_VERSION = "4.7.8";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.8", date:"Nov 2026", notes:"La barra inferior en celular ya no se amontona: deja 4 accesos de uso diario (Inicio, Ventas, Stock, Recetas) y agrupa el resto —Compras, Cocina, Reportes, Menú, Equipo, Config— detrás de un botón «☰ Más» que abre una hoja con todo. Si el usuario tiene pocos accesos (5 o menos), se muestran todos sin el botón «Más». (La versión de producción ya tenía este diseño; ahora el demo queda igual.)"},
   {v:"4.7.7", date:"Nov 2026", notes:"En «Cambiar de perfil» ahora aparecen los dos perfiles de estación: «🙋 Mozo (Estación)» abre directo la Estación de ventas y «🔔 Cocina (Pantalla)» la Estación de cocina. Antes el perfil de cocina no salía para quienes ya tenían el demo abierto y el de mozo no existía; ahora se agregan automáticamente al abrir el demo."},
   {v:"4.7.6", date:"Nov 2026", notes:"Nuevo perfil «🔔 Cocina»: pensado para la tablet o pantalla de la cocina. Al entrar con este perfil, la app abre directo la Estación de cocina a pantalla completa y nada más —sin menús ni acceso al resto del sistema— y con un botón «🔒 Salir» para volver a elegir perfil. En el demo puedes probarlo cambiando al perfil «Cocina (Pantalla)». (En producción, crea un usuario con el rol «Cocina» desde Equipo.)"},
   {v:"4.7.5", date:"Nov 2026", notes:"Nuevo reporte «👥 Mozos» en Reportes: el desempeño de cada mozo, con vista Semanal y Mensual y flechas para moverte entre períodos. Por cada mozo ves sus ventas totales, su porcentaje del total (ranking con 🥇🥈🥉), cuántas mesas atendió, su ticket promedio y los comensales. Cuenta solo pedidos cobrados; «Ventas» es lo cobrado al cliente (incluye servicio e IGV). Usa el mozo que ya se guarda en cada pedido, así que no hay que registrar nada extra."},
@@ -9659,7 +9660,10 @@ const NAV=[
   {id:"users",icon:"👥",label:"Equipo"},
   {id:"settings",icon:"⚙️",label:"Config"},
 ];
+// Which pages stay on the bar (daily-use); the rest fold into "Más".
+const NAV_PRIMARY=["dashboard","salesrecon","inventory","recipes"];
 function BottomNav({page,setPage,role}){
+  const [moreOpen,setMoreOpen]=useState(false);
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
     if(n.id==="cocina"&&!can(role,"viewKitchen"))return false;
@@ -9671,17 +9675,46 @@ function BottomNav({page,setPage,role}){
     if(n.id==="abastecimiento"&&!can(role,"editPurchases")&&role!=="owner")return false;
     return true;
   });
-  return h('div',{className:"app-bottomnav",style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
-    background:"rgba(24,28,39,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid var(--border2)",
-    display:"flex",justifyContent:"space-around",padding:"8px 0 calc(8px + env(safe-area-inset-bottom, 0px))",zIndex:100}},
-    visibleNav.map(n=>h('button',{key:n.id,onClick:()=>setPage(n.id),style:{
-      display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-      background:"none",border:"none",padding:"4px 6px",
-      color:page===n.id?"var(--accent)":"var(--text3)"}},
-      h('span',{style:{fontSize:page===n.id?18:16}},n.icon),
-      h('span',{style:{fontSize:9,fontWeight:page===n.id?600:400}},n.label),
-      page===n.id&&h('div',{style:{width:4,height:4,borderRadius:"50%",background:"var(--accent)",marginTop:1}})
-    ))
+  // ≤5 items → show them all; more → keep 4 daily-use tabs + a "Más" overflow.
+  const overflow=visibleNav.length>5;
+  const primary=overflow
+    ? NAV_PRIMARY.map(id=>visibleNav.find(n=>n.id===id)).filter(Boolean).slice(0,4)
+    : visibleNav;
+  const more=overflow?visibleNav.filter(n=>!primary.includes(n)):[];
+  const moreActive=more.some(n=>n.id===page);
+
+  const navBtn=(n,onClick,on)=>h('button',{key:n.id,onClick,style:{
+    display:"flex",flexDirection:"column",alignItems:"center",gap:2,flex:1,
+    background:"none",border:"none",padding:"4px 2px",cursor:"pointer",
+    color:on?"var(--accent)":"var(--text3)"}},
+    h('span',{style:{fontSize:on?18:16}},n.icon),
+    h('span',{style:{fontSize:9,fontWeight:on?600:400}},n.label),
+    on&&h('div',{style:{width:4,height:4,borderRadius:"50%",background:"var(--accent)",marginTop:1}})
+  );
+
+  return h(Fragment,null,
+    h('div',{className:"app-bottomnav",style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
+      background:"rgba(24,28,39,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid var(--border2)",
+      display:"flex",padding:"8px 0 calc(8px + env(safe-area-inset-bottom, 0px))",zIndex:100}},
+      primary.map(n=>navBtn(n,()=>setPage(n.id),page===n.id)),
+      overflow&&navBtn({id:"__more",icon:"☰",label:"Más"},()=>setMoreOpen(true),moreActive)
+    ),
+    moreOpen&&h('div',{onClick:()=>setMoreOpen(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:150,display:"flex",alignItems:"flex-end"}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:430,margin:"0 auto",background:"var(--surface)",
+        borderTopLeftRadius:18,borderTopRightRadius:18,borderTop:"1px solid var(--border2)",
+        padding:"10px 16px calc(20px + env(safe-area-inset-bottom, 0px))"}},
+        h('div',{style:{width:38,height:4,borderRadius:2,background:"var(--border2)",margin:"2px auto 14px"}}),
+        h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          more.map(n=>{const on=page===n.id; return h('button',{key:n.id,onClick:()=>{setPage(n.id);setMoreOpen(false);},style:{
+            display:"flex",alignItems:"center",gap:11,padding:"14px",borderRadius:"var(--radius)",cursor:"pointer",textAlign:"left",
+            border:"1px solid "+(on?"var(--accent)":"var(--border)"),background:on?"rgba(249,115,22,0.10)":"var(--surface2)",
+            color:on?"var(--accent)":"var(--text)"}},
+            h('span',{style:{fontSize:20}},n.icon),
+            h('span',{style:{fontSize:13,fontWeight:600,fontFamily:"var(--sora)"}},n.label)
+          );})
+        )
+      )
+    )
   );
 }
 
