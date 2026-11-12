@@ -535,9 +535,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.9";
+const APP_VERSION = "4.7.10";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.10", date:"Nov 2026", notes:"Los permisos por rol ahora se respetan también en el Inicio. Cada perfil solo ve lo que le corresponde: el cajero ve sus ventas, el cuadre de caja y la cocina, pero ya no ve costos, márgenes, estado del inventario, alertas de stock/compras ni precios sugeridos. Las tareas de «¿Qué hago hoy?» y los accesos rápidos se filtran según lo que el rol puede hacer, la barra inferior oculta Stock/Ventas a quien no tiene permiso, y el registro de actividad quedó solo para quien administra el equipo. El dueño sigue viendo todo."},
   {v:"4.7.9", date:"Nov 2026", notes:"Se eliminó el texto negro en las listas desplegables. Las opciones de los menús (categoría, unidad, mes, etc.) mostraban letra negra —casi invisible— sobre fondo oscuro; ahora usan el mismo blanco cálido del resto de la app. Además se activó el modo oscuro de los controles nativos (color-scheme), así que calendarios y campos numéricos también se ven con letra clara."},
   {v:"4.7.8", date:"Nov 2026", notes:"La barra inferior en celular ya no se amontona: deja 4 accesos de uso diario (Inicio, Ventas, Stock, Recetas) y agrupa el resto —Compras, Cocina, Reportes, Menú, Equipo, Config— detrás de un botón «☰ Más» que abre una hoja con todo. Si el usuario tiene pocos accesos (5 o menos), se muestran todos sin el botón «Más». (La versión de producción ya tenía este diseño; ahora el demo queda igual.)"},
   {v:"4.7.7", date:"Nov 2026", notes:"En «Cambiar de perfil» ahora aparecen los dos perfiles de estación: «🙋 Mozo (Estación)» abre directo la Estación de ventas y «🔔 Cocina (Pantalla)» la Estación de cocina. Antes el perfil de cocina no salía para quienes ya tenían el demo abierto y el de mozo no existía; ahora se agregan automáticamente al abrir el demo."},
@@ -1755,8 +1756,11 @@ function AlertCenter({
 }
 
 
-function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricingAlerts,products,setPage}){
+function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricingAlerts,products,setPage,role}){
   const [collapsed,setCollapsed]=useState(true);
+  // Only surface tasks this role can actually act on (same perms as the pages they open).
+  const PAGE_PERM={inventory:"editInventory",abastecimiento:"editPurchases",recipes:"editRecipes",menueng:"editRecipes",payrecon:"editSales",salesrecon:"editSales",reports:"viewReports",settings:"manageSettings",users:"manageUsers"};
+  const allow=pg=>!role||role==="owner"||(PAGE_PERM[pg]&&can(role,PAGE_PERM[pg]));
   const tasks=[];
   critical.forEach(p=>{
     const buy=Math.max(p.minStock*2-p.stock,p.minStock);
@@ -1792,9 +1796,10 @@ function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricing
       action:{label:"Comprar →",page:"abastecimiento"}});
   });
   tasks.sort((a,b)=>a.prio-b.prio);
+  const allowed=tasks.filter(t=>allow(t.action.page));
   const MAX=6;
-  const shown=tasks.slice(0,MAX);
-  const extra=tasks.length-shown.length;
+  const shown=allowed.slice(0,MAX);
+  const extra=allowed.length-shown.length;
   return h('div',{style:{
     background:"var(--surface)",border:"1px solid var(--border2)",
     borderRadius:"var(--radius)",overflow:"hidden",marginBottom:16
@@ -1806,15 +1811,15 @@ function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricing
         h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700}},"¿Qué hago hoy?"),
         h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},collapsed?"Toca para ver tus tareas":"Toca para colapsar")
       ),
-      tasks.length>0
+      allowed.length>0
         ?h('span',{style:{fontSize:11,fontWeight:700,color:"var(--accent)",
           background:"rgba(249,115,22,0.12)",borderRadius:20,padding:"2px 9px"}},
-          tasks.length+" tarea"+(tasks.length!==1?"s":""))
+          allowed.length+" tarea"+(allowed.length!==1?"s":""))
         :h('span',{style:{fontSize:11,fontWeight:700,color:"var(--green)",
           background:"rgba(34,197,94,0.12)",borderRadius:20,padding:"2px 9px"}},"Al día"),
       h('span',{style:{color:"var(--text3)",fontSize:14,marginLeft:2}},collapsed?"▼":"▲")
     ),
-    !collapsed&&(tasks.length===0
+    !collapsed&&(allowed.length===0
       ?h('div',{style:{padding:"16px 14px",display:"flex",alignItems:"center",gap:10}},
         h('span',{style:{fontSize:18}},"🎉"),
         h('div',{style:{fontSize:13,color:"var(--text2)"}},"Nada urgente por hoy — todo bajo control."))
@@ -1843,6 +1848,11 @@ function Dashboard({data,setPage,currentUser,onStation}){
   const _dashRole=currentUser?.role;
   const _showSalesStation=onStation&&(_dashRole==="owner"||_dashRole==="cashier"||_dashRole==="headboh");
   const _showKitchenStation=onStation&&(_dashRole==="owner"||_dashRole==="chef");
+  // ── What this role may SEE on the dashboard (match page permissions) ──
+  const _seeFin   = can(_dashRole,"viewReports");                   // costos, márgenes, P&L, pricing
+  const _seeSales = can(_dashRole,"editSales")    || _seeFin;       // ventas, pedidos, caja
+  const _seeInv   = can(_dashRole,"editInventory")|| _seeFin;       // stock, mermas
+  const _seeRec   = can(_dashRole,"editRecipes")  || _seeFin;       // recetas / precios sugeridos
   const today_date=today();
   const closedToday=orders.filter(o=>o.date===today_date&&o.status==="closed");
   const todayRevenue=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
@@ -1957,7 +1967,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
     // ── ¿QUÉ HAGO HOY? (checklist accionable) ─────────────────────────────────
     h(TodayChecklist,{
       critical,lowStock,needsRecount,pendingPurchases,pricingAlerts,
-      products,setPage
+      products,setPage,role:_dashRole
     }),
 
     // ── ALERT CENTER ──────────────────────────────────────────────────────────
@@ -1974,7 +1984,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
     }),
 
     // ── TODAY'S PERFORMANCE CARD ───────────────────────────────────────────────
-    h('div',{style:{
+    (_seeSales||_seeFin)&&h('div',{style:{
       background:"var(--surface)",border:"1px solid var(--border2)",
       borderRadius:"var(--radius)",overflow:"hidden",marginBottom:16
     }},
@@ -1994,65 +2004,40 @@ function Dashboard({data,setPage,currentUser,onStation}){
             )
       ),
 
-      // Main KPI row — 4 metrics
-      h('div',{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)"}},
-        [
-          {
-            label:"Ventas",
-            value:fmtCost(todayRevenue),
-            sub:_dashSettings.igvMode!=="ninguno"?"(bruto)":null,
-            color:"var(--accent)",
-            onClick:()=>setPage("salesrecon")
-          },
-          {
-            label:"% Costo",
-            value:hasDataToday?fmtPct(costPct):"—",
-            sub:"obj <"+Math.round(fct*100)+"%",
-            color:hasDataToday?foodCostColor:"var(--text3)",
-            onClick:()=>setPage("recipes")
-          },
-          {
-            label:"Margen",
-            value:fmtCost(todayRevenue-todayFoodCost),
-            sub:hasDataToday?fmtPct(1-costPct)+" mg":null,
-            color:"var(--green)",
-            onClick:()=>setPage("reports")
-          },
-          {
-            label:"Pedidos",
-            value:String(closedToday.length),
-            sub:totalPortions+" porc."+(totalPaxToday>0?" · "+totalPaxToday+"p":""),
-            color:"var(--text)",
-            onClick:()=>setPage("salesrecon")
-          }
-        ].map((k,i)=>h('div',{key:k.label,
-          onClick:k.onClick,
-          style:{
+      // Main KPI row — only the metrics this role may see
+      (()=>{ const kpis=[
+          {label:"Ventas",value:fmtCost(todayRevenue),sub:_dashSettings.igvMode!=="ninguno"?"(bruto)":null,color:"var(--accent)",onClick:()=>setPage("salesrecon"),show:_seeSales},
+          {label:"% Costo",value:hasDataToday?fmtPct(costPct):"—",sub:"obj <"+Math.round(fct*100)+"%",color:hasDataToday?foodCostColor:"var(--text3)",onClick:()=>setPage("recipes"),show:_seeFin},
+          {label:"Margen",value:fmtCost(todayRevenue-todayFoodCost),sub:hasDataToday?fmtPct(1-costPct)+" mg":null,color:"var(--green)",onClick:()=>setPage("reports"),show:_seeFin},
+          {label:"Pedidos",value:String(closedToday.length),sub:totalPortions+" porc."+(totalPaxToday>0?" · "+totalPaxToday+"p":""),color:"var(--text)",onClick:()=>setPage("salesrecon"),show:_seeSales}
+        ].filter(k=>k.show);
+        return h('div',{style:{display:"grid",gridTemplateColumns:"repeat("+kpis.length+",1fr)"}},
+          kpis.map((k,i)=>h('div',{key:k.label,onClick:k.onClick,style:{
             padding:"12px 8px",textAlign:"center",cursor:"pointer",
-            borderRight:i<3?"1px solid var(--border)":"none",
-            transition:"background .15s"
-          }},
-          h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color}},k.value),
-          h('div',{style:{fontSize:9,color:"var(--text3)",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}},k.label),
-          k.sub&&h('div',{style:{fontSize:9,color:"var(--text3)",opacity:0.7,marginTop:1}},k.sub)
-        ))
-      ),
+            borderRight:i<kpis.length-1?"1px solid var(--border)":"none",transition:"background .15s"}},
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:14,fontWeight:800,color:k.color}},k.value),
+            h('div',{style:{fontSize:9,color:"var(--text3)",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}},k.label),
+            k.sub&&h('div',{style:{fontSize:9,color:"var(--text3)",opacity:0.7,marginTop:1}},k.sub)
+          ))
+        ); })(),
 
       // Secondary info strip — netas + mermas + caja
-      hasDataToday&&h('div',{style:{
+      hasDataToday&&(_seeFin||_seeInv)&&h('div',{style:{
         display:"flex",justifyContent:"space-between",
         padding:"8px 14px",borderTop:"1px solid var(--border)",
         fontSize:11,color:"var(--text3)"
       }},
-        _dashSettings.igvMode!=="ninguno"
+        _seeFin&&_dashSettings.igvMode!=="ninguno"
           ?h('span',null,"Neto: ",h('strong',{style:{color:"var(--text2)"}},fmtCost(todayNetRevenue)),
              " · IGV: ",h('strong',null,fmtCost(todayRevenue-todayNetRevenue)))
           :h('span',null,closedToday.length+" pedidos cerrados"),
-        todayWastageCost>0
-          ?h('span',null,"Mermas hoy: ",h('strong',{style:{color:"var(--red)"}},fmtCost(todayWastageCost)))
-          :h('span',{style:{color:"var(--green)"}},"Sin mermas ✓")
+        _seeInv
+          ?(todayWastageCost>0
+              ?h('span',null,"Mermas hoy: ",h('strong',{style:{color:"var(--red)"}},fmtCost(todayWastageCost)))
+              :h('span',{style:{color:"var(--green)"}},"Sin mermas ✓"))
+          :h('span',null)
       ),
-      hasDataToday&&totalPaxToday>0&&h('div',{style:{
+      hasDataToday&&_seeSales&&totalPaxToday>0&&h('div',{style:{
         display:"flex",justifyContent:"space-between",
         padding:"8px 14px",borderTop:"1px solid var(--border)",
         fontSize:11,color:"var(--text3)"
@@ -2063,7 +2048,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
     ),
 
     // ── CIERRE DEL DÍA (cash recon status) ───────────────────────────────────
-    showCierre&&h('div',{onClick:()=>setPage("payrecon"),style:{
+    _seeSales&&showCierre&&h('div',{onClick:()=>setPage("payrecon"),style:{
       display:"flex",alignItems:"center",gap:10,
       background:cashMatchStatus==="ok"?"rgba(34,197,94,0.08)":cashMatchStatus==="gap"?"rgba(239,68,68,0.09)":"rgba(234,179,8,0.08)",
       border:`1px solid ${cashMatchStatus==="ok"?"rgba(34,197,94,0.25)":cashMatchStatus==="gap"?"rgba(239,68,68,0.35)":"rgba(234,179,8,0.3)"}`,
@@ -2085,7 +2070,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
     ),
 
     // ── TOP DISHES TODAY ──────────────────────────────────────────────────────
-    topDishes.some(r=>r.sold>0)&&h('div',{style:{marginBottom:16}},
+    _seeSales&&topDishes.some(r=>r.sold>0)&&h('div',{style:{marginBottom:16}},
       h('div',{style:{
         display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8
       }},
@@ -2100,7 +2085,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
           const podiumColor=i===0?"var(--accent)":i===1?"var(--blue)":"var(--text3)";
           const podiumBg=i===0?"rgba(249,115,22,0.2)":i===1?"rgba(59,130,246,0.15)":"rgba(156,163,175,0.1)";
           return h('div',{key:r.id,
-            onClick:()=>setPage("menueng"),
+            onClick:()=>setPage(_seeFin?"menueng":"salesrecon"),
             style:{
               display:"flex",alignItems:"center",gap:10,
               background:"var(--surface)",border:"1px solid var(--border)",
@@ -2118,10 +2103,10 @@ function Dashboard({data,setPage,currentUser,onStation}){
               h('div',{style:{fontSize:13,fontWeight:600,
                 overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.name),
               h('div',{style:{fontSize:11,color:"var(--text2)",marginTop:1}},
-                r.sold+" porciones · margen "+fmtCost(r.margin))
+                r.sold+" porciones"+(_seeFin?" · margen "+fmtCost(r.margin):""))
             ),
-            // Cost % badge
-            h('div',{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}},
+            // Cost % badge — finance only
+            _seeFin&&h('div',{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}},
               h(Badge,{color:r.costPct>getFCTWarn(data)?"red":r.costPct>fct?"yellow":"green"},fmtPct(r.costPct)),
               h('div',{style:{fontSize:9,color:"var(--text3)"}},fmtCost(r.netP)+" neto")
             )
@@ -2130,43 +2115,30 @@ function Dashboard({data,setPage,currentUser,onStation}){
       )
     ),
 
-    // ── QUICK ACTIONS GRID ────────────────────────────────────────────────────
-    h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:8}},"Acciones rápidas"),
-    h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}},
-      [
-        {
-          icon:"🛒",label:"Nueva compra",sub:"Registrar ingrediente",
-          color:"var(--blue)",bg:"rgba(59,130,246,0.1)",border:"rgba(59,130,246,0.3)",
-          page:"abastecimiento"
-        },
-        {
-          icon:"💰",label:"Cuadre de caja",sub:"Yape, efectivo, tarjeta",
-          color:"var(--green)",bg:"rgba(34,197,94,0.09)",border:"rgba(34,197,94,0.3)",
-          page:"salesrecon"
-        },
-        {
-          icon:"📋",label:"Conteo de stock",sub:"Inventario físico",
-          color:"var(--accent)",bg:"rgba(249,115,22,0.09)",border:"rgba(249,115,22,0.3)",
-          page:"inventory"
-        },
-        {
-          icon:"📊",label:"Ver reportes",sub:"P&L, costos, tendencias",
-          color:"#c084fc",bg:"rgba(192,132,252,0.09)",border:"rgba(192,132,252,0.3)",
-          page:"reports"
-        }
-      ].map(a=>h('div',{key:a.label,onClick:()=>setPage(a.page),style:{
-        background:a.bg,border:`1px solid ${a.border}`,
-        borderRadius:"var(--radius)",padding:"14px 14px 12px",cursor:"pointer",
-        transition:"opacity .15s"
-      }},
-        h('div',{style:{fontSize:24,marginBottom:6}},a.icon),
-        h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,color:a.color,marginBottom:2}},a.label),
-        h('div',{style:{fontSize:11,color:"var(--text3)"}},a.sub)
-      ))
-    ),
+    // ── QUICK ACTIONS GRID — only actions this role can perform ───────────────
+    (()=>{ const QA_PERM={abastecimiento:"editPurchases",salesrecon:"editSales",inventory:"editInventory",reports:"viewReports"};
+      const acts=[
+        {icon:"🛒",label:"Nueva compra",sub:"Registrar ingrediente",color:"var(--blue)",bg:"rgba(59,130,246,0.1)",border:"rgba(59,130,246,0.3)",page:"abastecimiento"},
+        {icon:"💰",label:"Cuadre de caja",sub:"Yape, efectivo, tarjeta",color:"var(--green)",bg:"rgba(34,197,94,0.09)",border:"rgba(34,197,94,0.3)",page:"salesrecon"},
+        {icon:"📋",label:"Conteo de stock",sub:"Inventario físico",color:"var(--accent)",bg:"rgba(249,115,22,0.09)",border:"rgba(249,115,22,0.3)",page:"inventory"},
+        {icon:"📊",label:"Ver reportes",sub:"P&L, costos, tendencias",color:"#c084fc",bg:"rgba(192,132,252,0.09)",border:"rgba(192,132,252,0.3)",page:"reports"}
+      ].filter(a=>can(_dashRole,QA_PERM[a.page]));
+      if(acts.length===0) return null;
+      return h(Fragment,null,
+        h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,marginBottom:8}},"Acciones rápidas"),
+        h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}},
+          acts.map(a=>h('div',{key:a.label,onClick:()=>setPage(a.page),style:{
+            background:a.bg,border:`1px solid ${a.border}`,
+            borderRadius:"var(--radius)",padding:"14px 14px 12px",cursor:"pointer",transition:"opacity .15s"}},
+            h('div',{style:{fontSize:24,marginBottom:6}},a.icon),
+            h('div',{style:{fontFamily:"var(--sora)",fontSize:13,fontWeight:700,color:a.color,marginBottom:2}},a.label),
+            h('div',{style:{fontSize:11,color:"var(--text3)"}},a.sub)
+          ))
+        )
+      ); })(),
 
-    // ── STOCK SNAPSHOT ────────────────────────────────────────────────────────
-    h('div',{style:{marginBottom:16}},
+    // ── STOCK SNAPSHOT — inventory roles only ─────────────────────────────────
+    _seeInv&&h('div',{style:{marginBottom:16}},
       h('div',{style:{
         display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8
       }},
@@ -2224,8 +2196,8 @@ function Dashboard({data,setPage,currentUser,onStation}){
       )
     ),
 
-    // ── PRICING ALERTS (top 3 if >0) ─────────────────────────────────────────
-    pricingAlerts.length>0&&h('div',{style:{marginBottom:16}},
+    // ── PRICING ALERTS (top 3 if >0) — recipe/finance roles only ──────────────
+    _seeRec&&pricingAlerts.length>0&&h('div',{style:{marginBottom:16}},
       h('div',{style:{
         display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8
       }},
@@ -9668,6 +9640,8 @@ function BottomNav({page,setPage,role}){
   const [moreOpen,setMoreOpen]=useState(false);
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
+    if(n.id==="inventory"&&!can(role,"editInventory"))return false;
+    if(n.id==="salesrecon"&&!can(role,"editSales"))return false;
     if(n.id==="cocina"&&!can(role,"viewKitchen"))return false;
     if(n.id==="reports"&&!can(role,"viewReports"))return false;
     if(n.id==="users"&&!can(role,"manageUsers"))return false;
@@ -9774,6 +9748,8 @@ function ChangelogModal({open,onClose,data}){
 function Sidebar({page,setPage,role,currentUser,onLogout,data}){
   const visibleNav=NAV.filter(n=>{
     if(n.ownerOnly&&role!=="owner")return false;
+    if(n.id==="inventory"&&!can(role,"editInventory"))return false;
+    if(n.id==="salesrecon"&&!can(role,"editSales"))return false;
     if(n.id==="cocina"&&!can(role,"viewKitchen"))return false;
     if(n.id==="reports"&&!can(role,"viewReports"))return false;
     if(n.id==="users"&&!can(role,"manageUsers"))return false;
@@ -10058,12 +10034,18 @@ function App(){
     recipes: can(role,"editRecipes")
       ? h(Recipes,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editRecipes",role}),
-    menueng:h(MenuEngineering,{data,setData,toast}),
+    menueng: can(role,"editRecipes")
+      ? h(MenuEngineering,{data,setData,toast})
+      : h(PermGate,{perm:"editRecipes",role}),
     abastecimiento: can(role,"editPurchases")
       ? h(Abastecimiento,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editPurchases",role}),
-    sales:h(Sales,{data,setData,toast}),
-    payrecon:h(PaymentRecon,{data,setData,toast}),
+    sales: can(role,"editSales")
+      ? h(Sales,{data,setData,toast})
+      : h(PermGate,{perm:"editSales",role}),
+    payrecon: can(role,"editSales")
+      ? h(PaymentRecon,{data,setData,toast})
+      : h(PermGate,{perm:"editSales",role}),
     salesrecon: can(role,"editSales")
       ? h(SalesRecon,{data,setData,toast,logActivity,currentUser})
       : h(PermGate,{perm:"editSales",role}),
@@ -10076,7 +10058,9 @@ function App(){
     users: can(role,"manageUsers")
       ? h(UsersPage,{data,setData,toast,currentUser})
       : h(PermGate,{perm:"manageUsers",role}),
-    activitylog:h(ActivityLog,{data,setPage}),
+    activitylog: can(role,"manageUsers")
+      ? h(ActivityLog,{data,setPage})
+      : h(PermGate,{perm:"manageUsers",role}),
     settings: can(role,"manageSettings")
       ? h(SettingsPage,{data,setData,toast})
       : h(PermGate,{perm:"manageSettings",role}),
@@ -10102,7 +10086,7 @@ function App(){
         h('div',{style:{display:"flex",gap:8,alignItems:"center"}},
 
           // Current user chip — hide on desktop (shown in sidebar)
-          h('button',{onClick:()=>setPage("activitylog"),className:"mobile-user-chip",style:{
+          h('button',{onClick:()=>setPage(can(role,"manageUsers")?"activitylog":"dashboard"),className:"mobile-user-chip",style:{
             display:"flex",alignItems:"center",gap:5,
             background:roleInfo.bg,border:`1px solid ${roleInfo.color}`,
             borderRadius:20,padding:"3px 10px 3px 7px",cursor:"pointer"
