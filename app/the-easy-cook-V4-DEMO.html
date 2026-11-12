@@ -535,9 +535,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.10";
+const APP_VERSION = "4.7.11";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.11", date:"Nov 2026", notes:"El «Jefe de Salón/Bar» ahora puede abrir la Estación de ventas para tomar pedidos, pero ya no ve la pestaña «Ventas & Caja» ni el cuadre de caja —eso queda para el cajero y el dueño—. En general, el acceso a la Estación de ventas se rige por el permiso de «tomar pedidos», separado de la gestión de ventas y caja."},
   {v:"4.7.10", date:"Nov 2026", notes:"Los permisos por rol ahora se respetan también en el Inicio. Cada perfil solo ve lo que le corresponde: el cajero ve sus ventas, el cuadre de caja y la cocina, pero ya no ve costos, márgenes, estado del inventario, alertas de stock/compras ni precios sugeridos. Las tareas de «¿Qué hago hoy?» y los accesos rápidos se filtran según lo que el rol puede hacer, la barra inferior oculta Stock/Ventas a quien no tiene permiso, y el registro de actividad quedó solo para quien administra el equipo. El dueño sigue viendo todo."},
   {v:"4.7.9", date:"Nov 2026", notes:"Se eliminó el texto negro en las listas desplegables. Las opciones de los menús (categoría, unidad, mes, etc.) mostraban letra negra —casi invisible— sobre fondo oscuro; ahora usan el mismo blanco cálido del resto de la app. Además se activó el modo oscuro de los controles nativos (color-scheme), así que calendarios y campos numéricos también se ven con letra clara."},
   {v:"4.7.8", date:"Nov 2026", notes:"La barra inferior en celular ya no se amontona: deja 4 accesos de uso diario (Inicio, Ventas, Stock, Recetas) y agrupa el resto —Compras, Cocina, Reportes, Menú, Equipo, Config— detrás de un botón «☰ Más» que abre una hoja con todo. Si el usuario tiene pocos accesos (5 o menos), se muestran todos sin el botón «Más». (La versión de producción ya tenía este diseño; ahora el demo queda igual.)"},
@@ -1050,7 +1051,7 @@ const ROLES = {
 const PERMS = {
   owner:   {editInventory:true,  editRecipes:true,  viewReports:true,  editSales:true,  editPurchases:true,  manageUsers:true,  manageSettings:true,  viewKitchen:true,  takeOrders:true },
   chef:    {editInventory:true,  editRecipes:true,  viewReports:false, editSales:false, editPurchases:true,  manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:false},
-  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
+  headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
   cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
   mozo:    {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false, takeOrders:true },
   kitchen: {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:false},
@@ -1846,7 +1847,7 @@ function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricing
 function Dashboard({data,setPage,currentUser,onStation}){
   const {products,recipes,bom,orders=[],orderLines=[],purchases=[],subBom=[],subRecipes=[],paymentRecons=[],wastageLog=[]}=data;
   const _dashRole=currentUser?.role;
-  const _showSalesStation=onStation&&(_dashRole==="owner"||_dashRole==="cashier"||_dashRole==="headboh");
+  const _showSalesStation=onStation&&can(_dashRole,"takeOrders");
   const _showKitchenStation=onStation&&(_dashRole==="owner"||_dashRole==="chef");
   // ── What this role may SEE on the dashboard (match page permissions) ──
   const _seeFin   = can(_dashRole,"viewReports");                   // costos, márgenes, P&L, pricing
