@@ -534,9 +534,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.5";
+const APP_VERSION = "4.7.6";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.6", date:"Nov 2026", notes:"Nuevo perfil «🔔 Cocina»: pensado para la tablet o pantalla de la cocina. Al entrar con este perfil, la app abre directo la Estación de cocina a pantalla completa y nada más —sin menús ni acceso al resto del sistema— y con un botón «🔒 Salir» para volver a elegir perfil. En el demo puedes probarlo cambiando al perfil «Cocina (Pantalla)». (En producción, crea un usuario con el rol «Cocina» desde Equipo.)"},
   {v:"4.7.5", date:"Nov 2026", notes:"Nuevo reporte «👥 Mozos» en Reportes: el desempeño de cada mozo, con vista Semanal y Mensual y flechas para moverte entre períodos. Por cada mozo ves sus ventas totales, su porcentaje del total (ranking con 🥇🥈🥉), cuántas mesas atendió, su ticket promedio y los comensales. Cuenta solo pedidos cobrados; «Ventas» es lo cobrado al cliente (incluye servicio e IGV). Usa el mozo que ya se guarda en cada pedido, así que no hay que registrar nada extra."},
   {v:"4.7.4", date:"Nov 2026", notes:"En la pestaña Equipo ahora puedes administrar tus mozos: una sección «🙋 Mozos» lista los nombres que aparecen al elegir mozo en la Estación de ventas, con un botón para agregar y una ✕ para eliminar cada uno. Antes solo se podían crear sobre la marcha desde la estación; ahora se gestionan en un solo lugar. Eliminar un mozo no afecta los pedidos anteriores que ya tenían su nombre."},
   {v:"4.7.3", date:"Nov 2026", notes:"Nuevo ajuste «Tiempo objetivo de cocina» en Config: defines en cuántos minutos esperas que salga una comanda (por defecto 15). Con eso, el reloj de cada pedido y los promedios de la Estación de cocina se pintan solos —verde mientras va dentro de tiempo, amarillo al acercarse (desde ~2/3 del objetivo) y rojo al superarlo— en vez de usar umbrales fijos. Así cada restaurante calibra la cocina a su propio ritmo."},
@@ -894,6 +895,7 @@ const INIT = {
     {id:"U003",name:"Juan Pablo (Cajero)",role:"cashier",pin:"3030",avatar:"💰",active:true},
     {id:"U004",name:"Pedro Salazar (Visor)",role:"viewer",pin:"4040",avatar:"👁",active:true},
     {id:"U005",name:"Rosa Delgado (Jefe de Salón)",role:"headboh",pin:"5050",avatar:"🍸",active:true},
+    {id:"U006",name:"Cocina (Pantalla)",role:"kitchen",pin:"6060",avatar:"🔔",active:true},
   ],
   activityLog:[
     {id:"AL006",userId:"U003",userName:"Juan Pablo (Cajero)",action:"Venta registrada",target:"Mesa 3 · S/ 142",module:"sales",ts:"2026-07-12T13:10:00"},
@@ -1034,6 +1036,7 @@ const ROLES = {
   headboh: {label:"Jefe Salón/Bar",color:"#ec4899", bg:"rgba(236,72,153,0.15)",  icon:"🍸", level:3},
   cashier: {label:"Cajero",     color:"#22c55e", bg:"rgba(34,197,94,0.15)",   icon:"💰",  level:2},
   mozo:    {label:"Mozo",       color:"#14b8a6", bg:"rgba(20,184,166,0.15)",  icon:"🙋",  level:2},
+  kitchen: {label:"Cocina",     color:"#eab308", bg:"rgba(234,179,8,0.15)",   icon:"🔔",  level:2},
   viewer:  {label:"Visor",      color:"#9ca3af", bg:"rgba(156,163,175,0.15)", icon:"👁",   level:1},
 };
 
@@ -1044,6 +1047,7 @@ const PERMS = {
   headboh: {editInventory:true,  editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
   cashier: {editInventory:false, editRecipes:false, viewReports:false, editSales:true,  editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:true },
   mozo:    {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false, takeOrders:true },
+  kitchen: {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:true,  takeOrders:false},
   viewer:  {editInventory:false, editRecipes:false, viewReports:false, editSales:false, editPurchases:false, manageUsers:false, manageSettings:false, viewKitchen:false, takeOrders:false},
 };
 
@@ -6616,7 +6620,7 @@ function OrderStation({data,setData,toast,currentUser,onExit,lockedMozo}){
 }
 
 // ─── COCINA · Pantalla de comandas (Kitchen Display) ──────────────────────────
-function KitchenDisplay({data,setData,toast,onExit}){
+function KitchenDisplay({data,setData,toast,onExit,locked}){
   const [tab,setTab]=useState("pend");                 // pend | done
   const [now,setNow]=useState(Date.now());
   const [soundOn,setSoundOn]=useState(false);
@@ -6678,7 +6682,7 @@ function KitchenDisplay({data,setData,toast,onExit}){
 
   return h('div',{className:"slide-up",style:{maxWidth:1400,margin:"0 auto"}},
     h('div',{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}},
-      onExit&&h('button',{onClick:onExit,style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:44}},"‹ Volver"),
+      onExit&&h('button',{onClick:onExit,style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:700,color:"var(--text2)",cursor:"pointer",minHeight:44}},locked?"🔒 Salir":"‹ Volver"),
       h('span',{style:{fontSize:30}},"🔔"),
       h('h1',{style:{fontFamily:"var(--sora)",fontSize:26,fontWeight:800,flex:1}},"Cocina"),
       h('button',{onClick:()=>setSoundOn(s=>!s),style:{background:soundOn?"rgba(34,197,94,0.12)":"var(--surface2)",border:"1px solid "+(soundOn?"var(--green)":"var(--border2)"),borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:700,color:soundOn?"var(--green)":"var(--text2)",cursor:"pointer",minHeight:44,whiteSpace:"nowrap"}}, soundOn?"🔔 Sonido":"🔕 Silencio"),
@@ -9990,13 +9994,16 @@ function App(){
   const role=currentUser.role;
 
   // Estación (modo kiosko): el mozo queda bloqueado aquí; cajero/chef la activan desde Inicio.
-  const stationActive = role==="mozo" ? "order" : stationMode;
+  const stationActive = role==="mozo" ? "order" : role==="kitchen" ? "kitchen" : stationMode;
+  const kioskSwitcher=h(RoleSwitcherModal,{open:showRoleSwitcher,onClose:()=>setShowRoleSwitcher(false),users:data.users,currentUser,onSwitch:u=>{setCurrentUser(u);setStationMode(null);setPage("dashboard");toast(`Ahora estás viendo la app como ${u.name}`,"info");}});
   if(stationActive==="order")
-    return h(OrderStation,{data,setData,toast,currentUser,lockedMozo:role==="mozo",
-      onExit: role==="mozo" ? doLogout : ()=>setStationMode(null)});
+    return h(Fragment,null, kioskSwitcher,
+      h(OrderStation,{data,setData,toast,currentUser,lockedMozo:role==="mozo",
+        onExit: role==="mozo" ? doLogout : ()=>setStationMode(null)}));
   if(stationActive==="kitchen")
-    return h('div',{style:{position:"fixed",inset:0,overflowY:"auto",background:"var(--bg)",padding:"16px 20px calc(16px + env(safe-area-inset-bottom,0px))"}},
-      h(KitchenDisplay,{data,setData,toast,onExit:()=>setStationMode(null)}));
+    return h(Fragment,null, kioskSwitcher,
+      h('div',{style:{position:"fixed",inset:0,overflowY:"auto",background:"var(--bg)",padding:"16px 20px calc(16px + env(safe-area-inset-bottom,0px))"}},
+        h(KitchenDisplay,{data,setData,toast,locked:role==="kitchen",onExit: role==="kitchen" ? doLogout : ()=>setStationMode(null)})));
 
   const pages={
     dashboard:h(Dashboard,{data,setPage,currentUser,onStation:setStationMode}),
