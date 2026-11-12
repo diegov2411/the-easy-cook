@@ -534,9 +534,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.7.6";
+const APP_VERSION = "4.7.7";
 const APP_BUILD   = "Sprint 15 — Julio 2026";
 const CHANGELOG = [
+  {v:"4.7.7", date:"Nov 2026", notes:"En «Cambiar de perfil» ahora aparecen los dos perfiles de estación: «🙋 Mozo (Estación)» abre directo la Estación de ventas y «🔔 Cocina (Pantalla)» la Estación de cocina. Antes el perfil de cocina no salía para quienes ya tenían el demo abierto y el de mozo no existía; ahora se agregan automáticamente al abrir el demo."},
   {v:"4.7.6", date:"Nov 2026", notes:"Nuevo perfil «🔔 Cocina»: pensado para la tablet o pantalla de la cocina. Al entrar con este perfil, la app abre directo la Estación de cocina a pantalla completa y nada más —sin menús ni acceso al resto del sistema— y con un botón «🔒 Salir» para volver a elegir perfil. En el demo puedes probarlo cambiando al perfil «Cocina (Pantalla)». (En producción, crea un usuario con el rol «Cocina» desde Equipo.)"},
   {v:"4.7.5", date:"Nov 2026", notes:"Nuevo reporte «👥 Mozos» en Reportes: el desempeño de cada mozo, con vista Semanal y Mensual y flechas para moverte entre períodos. Por cada mozo ves sus ventas totales, su porcentaje del total (ranking con 🥇🥈🥉), cuántas mesas atendió, su ticket promedio y los comensales. Cuenta solo pedidos cobrados; «Ventas» es lo cobrado al cliente (incluye servicio e IGV). Usa el mozo que ya se guarda en cada pedido, así que no hay que registrar nada extra."},
   {v:"4.7.4", date:"Nov 2026", notes:"En la pestaña Equipo ahora puedes administrar tus mozos: una sección «🙋 Mozos» lista los nombres que aparecen al elegir mozo en la Estación de ventas, con un botón para agregar y una ✕ para eliminar cada uno. Antes solo se podían crear sobre la marcha desde la estación; ahora se gestionan en un solo lugar. Eliminar un mozo no afecta los pedidos anteriores que ya tenían su nombre."},
@@ -896,6 +897,7 @@ const INIT = {
     {id:"U004",name:"Pedro Salazar (Visor)",role:"viewer",pin:"4040",avatar:"👁",active:true},
     {id:"U005",name:"Rosa Delgado (Jefe de Salón)",role:"headboh",pin:"5050",avatar:"🍸",active:true},
     {id:"U006",name:"Cocina (Pantalla)",role:"kitchen",pin:"6060",avatar:"🔔",active:true},
+    {id:"U007",name:"Mozo (Estación)",role:"mozo",pin:"7070",avatar:"🙋",active:true},
   ],
   activityLog:[
     {id:"AL006",userId:"U003",userName:"Juan Pablo (Cajero)",action:"Venta registrada",target:"Mesa 3 · S/ 142",module:"sales",ts:"2026-07-12T13:10:00"},
@@ -9824,6 +9826,14 @@ function migrateData(saved) {
       out[key] = savedVal;
     }
   }
+  // Demo: keep the station kiosk profiles available in the switcher even for
+  // returning visitors whose saved data predates them.
+  const STATION_SEED=[
+    {id:"U006",name:"Cocina (Pantalla)",role:"kitchen",pin:"6060",avatar:"🔔",active:true},
+    {id:"U007",name:"Mozo (Estación)",role:"mozo",pin:"7070",avatar:"🙋",active:true},
+  ];
+  out.users=Array.isArray(out.users)?out.users:[];
+  STATION_SEED.forEach(su=>{ if(!out.users.some(u=>u.id===su.id)) out.users.push(su); });
   return out;
 }
 
