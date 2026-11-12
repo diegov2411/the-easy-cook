@@ -21,6 +21,7 @@ html,body{height:100%;font-family:-apple-system,'Segoe UI','SF Pro Text','Helvet
   --text:#f0ede8;--text1:#f0ede8;--text2:#9ca3af;--text3:#6b7280;
   --sora:-apple-system,'Segoe UI Rounded','Segoe UI','SF Pro Display','Helvetica Neue',Arial,sans-serif;--sans:-apple-system,'Segoe UI','SF Pro Text','Helvetica Neue',Arial,sans-serif;
   --radius:14px;--radius-sm:9px;
+  color-scheme:dark;
 }
 input,select,textarea{
   font-family:var(--sans);background:var(--surface2);border:1px solid var(--border2);
@@ -32,7 +33,7 @@ input,select,textarea{
 }
 input:focus,select:focus{border-color:var(--accent)}
 input::placeholder{color:var(--text3)}
-select option{background:#1e2333}
+select option,select optgroup{background:var(--surface2);color:var(--text)}
 button{cursor:pointer;font-family:var(--sans);transition:all .15s;border:none}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
@@ -576,9 +577,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.18.6";
+const APP_VERSION = "4.18.7";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.7", date:"Nov 2026", notes:"Se eliminó el texto negro en las listas desplegables. Las opciones de los menús (categoría, unidad, mes, etc.) mostraban letra negra —casi invisible— sobre fondo oscuro; ahora usan el mismo blanco cálido del resto de la app. Además se activó el modo oscuro de los controles nativos (color-scheme), así que calendarios y campos numéricos también se ven con letra clara."},
   {v:"4.18.6", date:"Nov 2026", notes:"Nuevo perfil «🔔 Cocina»: pensado para la tablet o pantalla de la cocina. Crea un usuario con el rol «Cocina» desde Equipo y, al iniciar sesión con su PIN, la app abre directo la Estación de cocina a pantalla completa y nada más —sin menús ni acceso al resto del sistema—. Un botón «🔒 Salir» regresa a la pantalla de ingreso por PIN para que entre otro usuario."},
   {v:"4.18.5", date:"Nov 2026", notes:"Nuevo reporte «👥 Mozos» en Reportes: el desempeño de cada mozo, con vista Semanal y Mensual y flechas para moverte entre períodos. Por cada mozo ves sus ventas totales, su porcentaje del total (ranking con 🥇🥈🥉), cuántas mesas atendió, su ticket promedio y los comensales. Cuenta solo pedidos cobrados; «Ventas» es lo cobrado al cliente (incluye servicio e IGV). Usa el mozo que ya se guarda en cada pedido, así que no hay que registrar nada extra."},
   {v:"4.18.4", date:"Nov 2026", notes:"En la pestaña Equipo ahora puedes administrar tus mozos: una sección «🙋 Mozos» lista los nombres que aparecen al elegir mozo en la Estación de ventas, con un botón para agregar y una ✕ para eliminar cada uno. Antes solo se podían crear sobre la marcha desde la estación; ahora se gestionan en un solo lugar. Eliminar un mozo no afecta los pedidos anteriores que ya tenían su nombre."},
@@ -7038,7 +7040,7 @@ function injectPrintStyles(){
   .no-print{display:none!important;}
   .print-section{page-break-inside:avoid;break-inside:avoid;}
   .print-page-break{page-break-before:always;}
-  :root{--bg:#fff;--surface:#f8f8f8;--surface2:#f2f2f2;--text:#111;--text2:#444;--text3:#666;--border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.18);--accent:#e06010;--green:#1a7a3a;--yellow:#a07800;--red:#c0000a;}
+  :root{--bg:#fff;--surface:#f8f8f8;--surface2:#f2f2f2;--text:#111;--text2:#444;--text3:#666;--border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.18);--accent:#e06010;--green:#1a7a3a;--yellow:#a07800;--red:#c0000a;color-scheme:light;}
   svg text{fill:#333!important;}
   svg line,svg rect:not([fill]):not([fill="none"]){stroke:rgba(0,0,0,0.12)!important;}
 }`;
