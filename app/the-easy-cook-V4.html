@@ -577,9 +577,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 'use strict';
 // ─── VERSION ──────────────────────────────────────────────────────────────────
-const APP_VERSION = "4.18.10";
+const APP_VERSION = "4.18.11";
 const APP_BUILD   = "Sprint 20 — Agosto 2026";
 const CHANGELOG = [
+  {v:"4.18.11", date:"Nov 2026", notes:"Cinco mejoras para el día a día. 1) Propinas: al cobrar puedes agregar propina (Sin / 5% / 10% o monto libre); se guarda por mozo y aparece en el reporte de Mozos y en el resumen del día. 2) Dividir la cuenta: un contador «👥 Dividir» muestra cuánto paga cada persona. 3) Boleta/Recibo: desde un pedido cerrado, genera la boleta para enviarla por WhatsApp, copiarla o imprimirla (con nombre, RUC, IGV, servicio, propina y medios de pago). 4) Resumen del día: un botón en Inicio arma el cierre (ventas, Yape/efectivo/tarjeta, propinas, más vendidos) para compartir o imprimir. 5) Deshacer: al eliminar un pedido, una merma o un mozo, aparece un botón «↩ Deshacer» por unos segundos."},
   {v:"4.18.10", date:"Nov 2026", notes:"La Estación de cocina ahora es solo para quien la necesita: el jefe de cocina (Chef), el dueño y el perfil «Cocina (Pantalla)». El cajero y el jefe de salón/bar ya no ven la pestaña ni la estación de cocina."},
   {v:"4.18.9", date:"Nov 2026", notes:"El «Jefe de Salón/Bar» ahora puede abrir la Estación de ventas para tomar pedidos, pero ya no ve la pestaña «Ventas & Caja» ni el cuadre de caja —eso queda para el cajero y el dueño—. En general, el acceso a la Estación de ventas se rige por el permiso de «tomar pedidos», separado de la gestión de ventas y caja."},
   {v:"4.18.8", date:"Nov 2026", notes:"Los permisos por rol ahora se respetan también en el Inicio. Cada perfil solo ve lo que le corresponde: el cajero ve sus ventas, el cuadre de caja y la cocina, pero ya no ve costos, márgenes, estado del inventario, alertas de stock/compras ni precios sugeridos. Las tareas de «¿Qué hago hoy?» y los accesos rápidos se filtran según lo que el rol puede hacer, la barra inferior oculta Stock/Ventas a quien no tiene permiso, y el registro de actividad quedó solo para quien administra el equipo. El dueño sigue viendo todo."},
@@ -950,7 +951,9 @@ function computeOrderClose(d, ord, payment){
     +(ord.priceAdj||0);
   const breakdown=orderGrossTotal(baseTotal,settings);
   const pay=payment?{yape:+payment.yape||0,cash:+payment.cash||0,card:+payment.card||0}:(ord.payment||null);
+  const tip=payment?(+payment.tip||0):(ord.tip||0);
   const closedOrder={...ord,status:"closed",billRequested:false,
+    tip:tip,
     subtotal:breakdown.net,
     igvAmount:breakdown.igv,
     serviceAmount:breakdown.service,
@@ -962,6 +965,127 @@ function computeOrderClose(d, ord, payment){
     closedAt:Date.now(),
   };
   return {products:prods,subRecipes:subs,closedOrder};
+}
+
+// ─── BOLETA (customer receipt) + CIERRE DEL DÍA — share/print helpers ─────────
+function _money(v){return "S/ "+(Math.round((+v||0)*100)/100).toFixed(2);}
+function waShareText(text){ try{ window.open("https://wa.me/?text="+encodeURIComponent(text),"_blank"); }catch(e){} }
+function copyToClip(text,toast){
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(()=>toast&&toast("Copiado ✓","success"),()=>toast&&toast("No se pudo copiar","error")); return; } }catch(e){}
+  toast&&toast("No se pudo copiar","error");
+}
+function printDocHTML(bodyHtml,title){
+  try{
+    const w=window.open("","_blank","width=360,height=640");
+    if(!w)return false;
+    w.document.write("<html><head><title>"+(title||"")+"</title><meta charset='utf-8'><style>body{font-family:'Courier New',monospace;font-size:12px;color:#000;background:#fff;margin:0;padding:14px} .c{text-align:center} .r{display:flex;justify-content:space-between;gap:10px} .b{font-weight:bold} .big{font-size:15px} hr{border:none;border-top:1px dashed #000;margin:7px 0}</style></head><body>"+bodyHtml+"<scr"+"ipt>window.onload=function(){window.print();setTimeout(function(){window.close();},400);}</scr"+"ipt></body></html>");
+    w.document.close(); return true;
+  }catch(e){return false;}
+}
+function _orderReceipt(order,data){
+  const s=getSettings(data);
+  const recById=id=>(data.recipes||[]).find(r=>r.id===id);
+  const lines=(data.orderLines||[]).filter(l=>l.orderId===order.id).map(l=>{const r=recById(l.recipeId);const price=r?(r.price||0):0;return {name:r?r.name:"—",qty:l.qty,total:price*l.qty};});
+  const net=order.subtotal!=null?order.subtotal:null;
+  const total=order.total!=null?order.total:(lines.reduce((a,l)=>a+l.total,0)+(order.priceAdj||0));
+  return {s,lines,net,igv:order.igvAmount||0,service:order.serviceAmount||0,tip:order.tip||0,total,pay:order.payment||{}};
+}
+function receiptTextOf(order,data){
+  const R=_orderReceipt(order,data), L="------------------------------";
+  let t="";
+  t+=(R.s.restaurantName||"The Easy Cook")+"\n";
+  if(R.s.ruc)t+="RUC: "+R.s.ruc+"\n";
+  t+=fmtDate(order.date||"")+(order.tableNum?("  ·  Mesa "+order.tableNum):"")+"\n";
+  if(order.code)t+=order.code+(order.waiter?("  ·  "+order.waiter):"")+"\n";
+  t+=L+"\n";
+  R.lines.forEach(l=>{t+=(l.qty>1?l.qty+"x ":"")+l.name+"   "+_money(l.total)+"\n";});
+  t+=L+"\n";
+  if(order.priceAdj)t+=(order.priceAdj<0?"Descuento":"Ajuste")+"   "+_money(order.priceAdj)+"\n";
+  if(R.net!=null&&R.s.igvMode!=="ninguno")t+="Subtotal   "+_money(R.net)+"\nIGV (18%)   "+_money(R.igv)+"\n";
+  if(R.service>0)t+="Servicio   "+_money(R.service)+"\n";
+  t+="TOTAL   "+_money(R.total)+"\n";
+  if(R.tip>0)t+="Propina   "+_money(R.tip)+"\nTotal pagado   "+_money(R.total+R.tip)+"\n";
+  const pp=[]; if(R.pay.yape)pp.push("Yape "+_money(R.pay.yape)); if(R.pay.cash)pp.push("Efectivo "+_money(R.pay.cash)); if(R.pay.card)pp.push("Tarjeta "+_money(R.pay.card));
+  if(pp.length)t+=pp.join(" · ")+"\n";
+  t+="\n¡Gracias por su visita! 🙌";
+  return t;
+}
+function receiptHtmlOf(order,data){
+  const R=_orderReceipt(order,data);
+  const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  const row=(a,b,cl)=>"<div class='r "+(cl||"")+"'><span>"+a+"</span><span>"+b+"</span></div>";
+  let x="<div class='c big b'>"+esc(R.s.restaurantName||"The Easy Cook")+"</div>";
+  if(R.s.ruc)x+="<div class='c'>RUC: "+esc(R.s.ruc)+"</div>";
+  x+="<div class='c'>"+esc(fmtDate(order.date||""))+(order.tableNum?(" · Mesa "+order.tableNum):"")+"</div>";
+  if(order.code)x+="<div class='c'>"+esc(order.code)+(order.waiter?(" · "+esc(order.waiter)):"")+"</div>";
+  x+="<hr>";
+  R.lines.forEach(l=>{x+=row((l.qty>1?l.qty+"x ":"")+esc(l.name),_money(l.total));});
+  x+="<hr>";
+  if(order.priceAdj)x+=row(order.priceAdj<0?"Descuento":"Ajuste",_money(order.priceAdj));
+  if(R.net!=null&&R.s.igvMode!=="ninguno"){x+=row("Subtotal",_money(R.net))+row("IGV (18%)",_money(R.igv));}
+  if(R.service>0)x+=row("Servicio",_money(R.service));
+  x+=row("TOTAL",_money(R.total),"b big");
+  if(R.tip>0)x+=row("Propina",_money(R.tip))+row("Total pagado",_money(R.total+R.tip),"b");
+  const pp=[]; if(R.pay.yape)pp.push("Yape "+_money(R.pay.yape)); if(R.pay.cash)pp.push("Efectivo "+_money(R.pay.cash)); if(R.pay.card)pp.push("Tarjeta "+_money(R.pay.card));
+  if(pp.length)x+="<hr><div class='c'>"+pp.join(" · ")+"</div>";
+  x+="<hr><div class='c'>¡Gracias por su visita! 🙌</div>";
+  return x;
+}
+function cierreOf(data){
+  const t=today();
+  const closed=(data.orders||[]).filter(o=>o.status==="closed"&&o.date===t);
+  const recById=id=>(data.recipes||[]).find(r=>r.id===id);
+  let ventas=0,yape=0,cash=0,card=0,tips=0,pax=0;
+  const dishMap={};
+  closed.forEach(o=>{
+    ventas+=(o.total!=null?o.total:0);
+    const p=o.payment||{}; yape+=(+p.yape||0); cash+=(+p.cash||0); card+=(+p.card||0);
+    tips+=(+o.tip||0); pax+=(o.pax||0);
+    (data.orderLines||[]).filter(l=>l.orderId===o.id).forEach(l=>{const r=recById(l.recipeId);const nm=r?r.name:"—";dishMap[nm]=(dishMap[nm]||0)+l.qty;});
+  });
+  const top=Object.entries(dishMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const wastage=(data.wastageLog||[]).filter(w=>w.date===t).reduce((s,w)=>s+(w.lostValue||0),0);
+  return {date:t,count:closed.length,ventas,yape,cash,card,tips,pax,top,wastage,cobrado:ventas+tips};
+}
+function cierreTextOf(data){
+  const C=cierreOf(data), s=getSettings(data), L="------------------------------";
+  let t="Cierre del día\n";
+  if(s.restaurantName)t+=s.restaurantName+"\n";
+  t+=fmtDate(C.date)+"\n"+L+"\n";
+  t+="Pedidos: "+C.count+(C.pax?("   ·   "+C.pax+" personas"):"")+"\n";
+  t+="Ventas: "+_money(C.ventas)+"\n";
+  if(C.tips>0)t+="Propinas: "+_money(C.tips)+"\n";
+  t+="Total cobrado: "+_money(C.cobrado)+"\n";
+  t+="  Yape "+_money(C.yape)+"\n  Efectivo "+_money(C.cash)+"\n  Tarjeta "+_money(C.card)+"\n";
+  if(C.wastage>0)t+="Mermas del día: "+_money(C.wastage)+"\n";
+  if(C.top.length){t+=L+"\nMás vendidos:\n";C.top.forEach((d,i)=>{t+=(i+1)+". "+d[0]+" ("+d[1]+")\n";});}
+  return t;
+}
+function cierreHtmlOf(data){
+  const C=cierreOf(data), s=getSettings(data);
+  const row=(a,b,cl)=>"<div class='r "+(cl||"")+"'><span>"+a+"</span><span>"+b+"</span></div>";
+  const esc=v=>String(v==null?"":v).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  let x="<div class='c big b'>Cierre del día</div>";
+  if(s.restaurantName)x+="<div class='c'>"+esc(s.restaurantName)+"</div>";
+  x+="<div class='c'>"+esc(fmtDate(C.date))+"</div><hr>";
+  x+=row("Pedidos",String(C.count))+(C.pax?row("Personas",String(C.pax)):"");
+  x+=row("Ventas",_money(C.ventas));
+  if(C.tips>0)x+=row("Propinas",_money(C.tips));
+  x+=row("Total cobrado",_money(C.cobrado),"b big")+"<hr>";
+  x+=row("Yape",_money(C.yape))+row("Efectivo",_money(C.cash))+row("Tarjeta",_money(C.card));
+  if(C.wastage>0)x+="<hr>"+row("Mermas del día",_money(C.wastage));
+  if(C.top.length){x+="<hr><div class='b'>Más vendidos</div>";C.top.forEach((d,i)=>{x+=row((i+1)+". "+esc(d[0]),String(d[1]));});}
+  return x;
+}
+function DocShareModal({title,text,html,docTitle,toast,onClose}){
+  return h(Modal,{open:true,onClose,title},
+    h('div',{style:{background:"#fff",color:"#111",borderRadius:10,padding:"14px 16px",fontFamily:"'Courier New',monospace",fontSize:12.5,lineHeight:1.5,maxHeight:"46vh",overflowY:"auto",whiteSpace:"pre-wrap",border:"1px solid var(--border2)"}}, text),
+    h('div',{style:{display:"flex",gap:8,marginTop:14}},
+      h(Btn,{onClick:()=>waShareText(text),style:{flex:1}},"📲 WhatsApp"),
+      h(Btn,{variant:"ghost",onClick:()=>copyToClip(text,toast)},"📋 Copiar"),
+      h(Btn,{variant:"ghost",onClick:()=>{ if(!printDocHTML(html,docTitle))toast&&toast("Permite ventanas emergentes para imprimir","error"); }},"🖨")
+    )
+  );
 }
 
 // Food cost target helpers
@@ -1385,15 +1509,22 @@ function ShowMore({shown,total,onMore,onAll}){
       "Ver todas"):null);
 }
 
-function Toast({msg,type,onDone}){
-  useEffect(()=>{const t=setTimeout(onDone,2500);return()=>clearTimeout(t);},[]);
+function Toast({msg,type,action,onDone}){
+  useEffect(()=>{const t=setTimeout(onDone,action?5000:2500);return()=>clearTimeout(t);},[]);
   const colors={success:"var(--green)",error:"var(--red)",info:"var(--blue)"};
   return h('div',{className:"slide-up app-toast",style:{
     position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",
     background:"var(--surface2)",border:`1px solid ${colors[type]||colors.info}`,
-    borderRadius:"var(--radius)",padding:"10px 18px",zIndex:2000,
+    borderRadius:"var(--radius)",padding:"10px 14px 10px 18px",zIndex:2000,
     fontSize:13,fontWeight:500,color:"var(--text)",whiteSpace:"nowrap",
-    boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}},msg);
+    display:"flex",alignItems:"center",gap:12,
+    boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}},
+    h('span',null,msg),
+    action&&h('button',{onClick:()=>{action.onClick();onDone();},style:{
+      background:"transparent",border:"none",color:colors[type]||colors.info,
+      fontSize:13,fontWeight:800,cursor:"pointer",padding:"2px 4px",whiteSpace:"nowrap",fontFamily:"var(--sans)"}},
+      "↩ "+(action.label||"Deshacer"))
+  );
 }
 
 function CategoryPills({cats,active,onChange,onManage}){
@@ -1798,7 +1929,7 @@ function TodayChecklist({critical,lowStock,needsRecount,pendingPurchases,pricing
 }
 
 
-function Dashboard({data,setPage,currentUser,onStation}){
+function Dashboard({data,setPage,currentUser,onStation,toast}){
   const {products,recipes,bom,orders=[],orderLines=[],purchases=[],subBom=[],subRecipes=[],paymentRecons=[],wastageLog=[]}=data;
   const _dashRole=currentUser?.role;
   const _showSalesStation=onStation&&can(_dashRole,"takeOrders");
@@ -1808,6 +1939,7 @@ function Dashboard({data,setPage,currentUser,onStation}){
   const _seeSales = can(_dashRole,"editSales")    || _seeFin;       // ventas, pedidos, caja
   const _seeInv   = can(_dashRole,"editInventory")|| _seeFin;       // stock, mermas
   const _seeRec   = can(_dashRole,"editRecipes")  || _seeFin;       // recetas / precios sugeridos
+  const [cierreOpen,setCierreOpen]=useState(false);
   const today_date=today();
   const closedToday=orders.filter(o=>o.date===today_date&&o.status==="closed");
   const todayRevenue=closedToday.reduce((s,o)=>s+linesOf(orderLines,o.id)
@@ -2055,6 +2187,19 @@ function Dashboard({data,setPage,currentUser,onStation}){
       h('span',{style:{color:"var(--text3)",fontSize:14}},"›")
     ),
 
+    // ── RESUMEN DEL DÍA (shareable) ───────────────────────────────────────────
+    _seeSales&&hasDataToday&&h('button',{onClick:()=>setCierreOpen(true),style:{
+      width:"100%",display:"flex",alignItems:"center",gap:10,marginBottom:16,cursor:"pointer",
+      background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:"var(--radius)",padding:"11px 14px"}},
+      h('span',{style:{fontSize:18}},"📋"),
+      h('div',{style:{flex:1,textAlign:"left"}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:"var(--text)"}},"Resumen del día"),
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}},"Ventas, medios de pago y propinas — para compartir")
+      ),
+      h('span',{style:{fontSize:15}},"📲")
+    ),
+    cierreOpen&&h(DocShareModal,{title:"Resumen del día",text:cierreTextOf(data),html:cierreHtmlOf(data),docTitle:"Cierre",toast,onClose:()=>setCierreOpen(false)}),
+
     // ── TOP DISHES TODAY ──────────────────────────────────────────────────────
     _seeSales&&topDishes.some(r=>r.sold>0)&&h('div',{style:{marginBottom:16}},
       h('div',{style:{
@@ -2278,8 +2423,9 @@ function WastagePanel({wastageLog,setData,toast}){
   const visible=showAll?filtered:filtered.slice(0,8);
 
   const doDelete=id=>{
+    const removed=(wastageLog||[]).find(w=>w.id===id);
     setData(d=>({...d,wastageLog:(d.wastageLog||[]).filter(w=>w.id!==id)}));
-    toast("Merma eliminada","info");
+    toast("Merma eliminada","info",removed?{label:"Deshacer",onClick:()=>setData(d=>({...d,wastageLog:[removed,...(d.wastageLog||[])]}))}:null);
     setConfirmDelete(null);
   };
 
@@ -4529,6 +4675,7 @@ function Sales({data,setData,toast,currentUser,notify=()=>{}}){
   const [editLineForm,setEditLineForm]=useState({});
   const [adjModal,setAdjModal]=useState(false);
   const [adjForm,setAdjForm]=useState({});
+  const [receiptOrder,setReceiptOrder]=useState(null);
   const [filterDay,setFilterDay]=useState("all");
   const [filterMonth,setFilterMonth]=useState("all");
   const [filterYear,setFilterYear]=useState("all");
@@ -4666,9 +4813,11 @@ function Sales({data,setData,toast,currentUser,notify=()=>{}}){
     setSelectedOrder({...ord,status:"open"});toast(`Pedido ${ord.code} reabierto`,"info");
   };
   const deleteOrder=ord=>{
+    const snap={orders:data.orders,orderLines:data.orderLines,products:data.products,subRecipes:data.subRecipes};
     if(ord.status==="closed")reopenOrder(ord);
     setData(d=>({...d,orders:d.orders.filter(o=>o.id!==ord.id),orderLines:d.orderLines.filter(l=>l.orderId!==ord.id)}));
-    setView("list");toast(`Pedido ${ord.code} eliminado`,"info");
+    setView("list");
+    toast(`Pedido ${ord.code} eliminado`,"info",{label:"Deshacer",onClick:()=>setData(d=>({...d,...snap}))});
     notify("delete",`anuló el pedido ${ord.code}`);
   };
   const saveAdj=(ord)=>{
@@ -4846,11 +4995,15 @@ function Sales({data,setData,toast,currentUser,notify=()=>{}}){
           ),
           h('div',{style:{fontSize:11,color:"var(--text3)",textAlign:"center"}},"El stock se descuenta al cerrar el pedido")
         )
-        :h('div',{style:{display:"flex",gap:8}},
-          h(Btn,{variant:"ghost",onClick:()=>setView("list"),style:{flex:1}},"Volver"),
-          h(Btn,{variant:"ghost",onClick:()=>reopenOrder(ord)},"Reabrir"),
-          h(Btn,{variant:"danger",onClick:()=>deleteOrder(ord)},"Eliminar")
+        :h('div',{style:{display:"flex",flexDirection:"column",gap:8}},
+          h(Btn,{onClick:()=>setReceiptOrder(ord),size:"lg",style:{width:"100%"}},"🧾 Boleta / Recibo"),
+          h('div',{style:{display:"flex",gap:8}},
+            h(Btn,{variant:"ghost",onClick:()=>setView("list"),style:{flex:1}},"Volver"),
+            h(Btn,{variant:"ghost",onClick:()=>reopenOrder(ord)},"Reabrir"),
+            h(Btn,{variant:"danger",onClick:()=>deleteOrder(ord)},"Eliminar")
+          )
         ),
+      receiptOrder&&h(DocShareModal,{title:"Boleta — Mesa "+(receiptOrder.tableNum||"—"),text:receiptTextOf(receiptOrder,data),html:receiptHtmlOf(receiptOrder,data),docTitle:"Boleta",toast,onClose:()=>setReceiptOrder(null)}),
       h(Modal,{open:addDishModal,onClose:()=>setAddDishModal(false),title:"Agregar plato al pedido"},
         h('div',{style:{fontSize:12,color:"var(--text3)",marginBottom:12}},`Pedido ${ord.code} · Mesa ${ord.tableNum}`),
         h('div',{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:12}},
@@ -6791,14 +6944,39 @@ function KitchenDisplay({data,setData,toast,onExit,locked}){
 // Split-tender collect form: amounts per method must sum to the total before "Cobrar".
 function CollectForm({total,onCollect}){
   const [p,setP]=useState({yape:"",cash:"",card:""});
+  const [tipStr,setTipStr]=useState("");
+  const [split,setSplit]=useState(1);
+  const tip=Math.max(0,Math.round((+tipStr||0)*100)/100);
+  const grand=Math.round((total+tip)*100)/100;
   const y=+p.yape||0,c=+p.cash||0,t=+p.card||0;
   const sum=Math.round((y+c+t)*100)/100;
-  const rem=Math.round((total-sum)*100)/100;
+  const rem=Math.round((grand-sum)*100)/100;
   const ok=Math.abs(rem)<0.005&&sum>0;
   const methods=[{k:"yape",label:"Yape",icon:"💜"},{k:"cash",label:"Efectivo",icon:"💵"},{k:"card",label:"Tarjeta",icon:"💳"}];
   const setOne=(k,v)=>setP(prev=>({...prev,[k]:v}));
-  const fillRest=(k)=>setP(prev=>{const others=methods.filter(m=>m.k!==k).reduce((s,m)=>s+(+prev[m.k]||0),0);const left=Math.round((total-others)*100)/100;return {...prev,[k]:left>0?String(left):""};});
+  const fillRest=(k)=>setP(prev=>{const others=methods.filter(m=>m.k!==k).reduce((s,m)=>s+(+prev[m.k]||0),0);const left=Math.round((grand-others)*100)/100;return {...prev,[k]:left>0?String(left):""};});
+  const perPerson=split>1?Math.round((grand/split)*100)/100:0;
+  const setTipPct=(pct)=>setTipStr(pct===0?"":String(Math.round(total*pct/100*100)/100));
+  const pill=(on)=>({fontSize:11,fontWeight:700,padding:"6px 10px",borderRadius:16,cursor:"pointer",whiteSpace:"nowrap",
+    border:"1px solid "+(on?"var(--accent)":"var(--border2)"),background:on?"rgba(249,115,22,0.15)":"var(--surface2)",color:on?"var(--accent)":"var(--text2)"});
+  const step={width:34,height:34,borderRadius:8,border:"1px solid var(--border2)",background:"var(--surface)",color:"var(--text)",fontSize:18,fontWeight:800,cursor:"pointer"};
   return h('div',null,
+    // Propina
+    h('div',{style:{display:"flex",alignItems:"center",gap:7,marginBottom:8,flexWrap:"wrap"}},
+      h('span',{style:{fontSize:13,fontWeight:700,color:"var(--text2)",whiteSpace:"nowrap"}},"💵 Propina"),
+      [0,5,10].map(pct=>h('button',{key:pct,onClick:()=>setTipPct(pct),style:pill(pct===0?tip===0:Math.abs(tip-Math.round(total*pct/100*100)/100)<0.005&&tip>0)},pct===0?"Sin":pct+"%")),
+      h('input',{type:"number",inputMode:"decimal",min:"0",step:"0.5",value:tipStr,onChange:e=>setTipStr(e.target.value),placeholder:"S/ 0",style:{width:72,fontSize:14,textAlign:"right",padding:"7px 9px"}})
+    ),
+    // Dividir la cuenta
+    h('div',{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,background:"var(--surface2)",borderRadius:10,padding:"7px 10px"}},
+      h('span',{style:{fontSize:13,fontWeight:700,color:"var(--text2)"}},"👥 Dividir cuenta"),
+      h('div',{style:{display:"flex",alignItems:"center",gap:8}},
+        split>1&&h('span',{style:{fontSize:13,fontWeight:800,color:"var(--accent)",whiteSpace:"nowrap"}},fmtCost(perPerson)+" c/u"),
+        h('button',{onClick:()=>setSplit(s=>Math.max(1,s-1)),style:step},"−"),
+        h('span',{style:{minWidth:22,textAlign:"center",fontWeight:800,fontFamily:"var(--sora)",fontSize:16}},split),
+        h('button',{onClick:()=>setSplit(s=>Math.min(20,s+1)),style:step},"+")
+      )
+    ),
     h('div',{style:{display:"flex",flexDirection:"column",gap:7,marginBottom:8}},
       methods.map(m=>h('div',{key:m.k,style:{display:"flex",alignItems:"center",gap:8}},
         h('span',{style:{fontSize:17,width:24,textAlign:"center"}},m.icon),
@@ -6806,11 +6984,15 @@ function CollectForm({total,onCollect}){
         h('button',{onClick:()=>fillRest(m.k),style:{fontSize:11,fontWeight:700,padding:"8px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--surface2)",color:"var(--text2)",cursor:"pointer",whiteSpace:"nowrap"}},"Todo")
       ))
     ),
+    tip>0&&h('div',{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text3)",marginBottom:6}},
+      h('span',null,"Cuenta "+fmtCost(total)+" + propina "+fmtCost(tip)),
+      h('span',{style:{fontWeight:700,color:"var(--text2)"}},"Total "+fmtCost(grand))
+    ),
     h('div',{style:{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginBottom:8,color:ok?"var(--green)":(Math.abs(rem)<0.005?"var(--text3)":(rem>0?"var(--red)":"var(--blue)"))}},
       h('span',null, ok?"✓ Cuadra":(rem>0?"Falta":"Sobra")),
-      h('span',null, ok?fmtCost(total):fmtCost(Math.abs(rem)))
+      h('span',null, ok?fmtCost(grand):fmtCost(Math.abs(rem)))
     ),
-    h('button',{disabled:!ok,onClick:()=>onCollect({yape:y,cash:c,card:t}),style:{width:"100%",minHeight:52,borderRadius:12,border:"none",background:ok?"var(--green)":"var(--surface2)",color:ok?"#fff":"var(--text3)",fontSize:17,fontWeight:800,fontFamily:"var(--sora)",cursor:ok?"pointer":"not-allowed"}}, "✓ Cobrar "+fmtCost(total))
+    h('button',{disabled:!ok,onClick:()=>onCollect({yape:y,cash:c,card:t,tip}),style:{width:"100%",minHeight:52,borderRadius:12,border:"none",background:ok?"var(--green)":"var(--surface2)",color:ok?"#fff":"var(--text3)",fontSize:17,fontWeight:800,fontFamily:"var(--sora)",cursor:ok?"pointer":"not-allowed"}}, "✓ Cobrar "+fmtCost(grand))
   );
 }
 
@@ -8684,11 +8866,12 @@ function MozoReport({data}){
   const closed=orders.filter(o=>o.status==="closed"&&inRange(o.date,start,end));
   const map={};
   closed.forEach(o=>{const key=(o.waiter||"").trim()||"Sin mozo";
-    if(!map[key])map[key]={name:key,mesas:0,ventas:0,pax:0};
-    map[key].mesas++; map[key].ventas+=grossOf(o); map[key].pax+=(o.pax||0);});
+    if(!map[key])map[key]={name:key,mesas:0,ventas:0,pax:0,tips:0};
+    map[key].mesas++; map[key].ventas+=grossOf(o); map[key].pax+=(o.pax||0); map[key].tips+=(+o.tip||0);});
   const rows=Object.values(map).map(r=>({...r,ticket:r.mesas?r.ventas/r.mesas:0})).sort((a,b)=>b.ventas-a.ventas);
   const totalVentas=rows.reduce((s,r)=>s+r.ventas,0);
   const totalMesas=rows.reduce((s,r)=>s+r.mesas,0);
+  const totalTips=rows.reduce((s,r)=>s+r.tips,0);
   const maxVentas=rows.reduce((m,r)=>Math.max(m,r.ventas),0);
   const MEDAL=["🥇","🥈","🥉"];
 
@@ -8710,7 +8893,7 @@ function MozoReport({data}){
       h('button',{onClick:()=>setOffset(o=>o-1),style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,width:40,height:40,fontSize:18,color:"var(--text2)",cursor:"pointer"}},"‹"),
       h('div',{style:{textAlign:"center",flex:1,minWidth:0}},
         h('div',{style:{fontFamily:"var(--sora)",fontSize:15,fontWeight:800}},rangeLabel),
-        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}}, fmtCost(totalVentas)+" · "+totalMesas+" mesa"+(totalMesas!==1?"s":""))
+        h('div',{style:{fontSize:11,color:"var(--text3)",marginTop:1}}, fmtCost(totalVentas)+" · "+totalMesas+" mesa"+(totalMesas!==1?"s":"")+(totalTips>0?" · 💵 "+fmtCost(totalTips)+" propinas":""))
       ),
       h('button',{onClick:()=>setOffset(o=>Math.min(0,o+1)),disabled:offset>=0,style:{background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,width:40,height:40,fontSize:18,color:offset>=0?"var(--text3)":"var(--text2)",cursor:offset>=0?"not-allowed":"pointer",opacity:offset>=0?0.4:1}},"›")
     ),
@@ -8738,7 +8921,8 @@ function MozoReport({data}){
             h('div',{style:{display:"flex",gap:16,fontSize:12,color:"var(--text2)",flexWrap:"wrap"}},
               h('span',null,h('b',{style:{color:"var(--text)"}},r.mesas)," mesas"),
               h('span',null,"Ticket prom. ",h('b',{style:{color:"var(--text)"}},fmtCost(r.ticket))),
-              r.pax>0&&h('span',null,h('b',{style:{color:"var(--text)"}},r.pax)," comensales")
+              r.pax>0&&h('span',null,h('b',{style:{color:"var(--text)"}},r.pax)," comensales"),
+              r.tips>0&&h('span',null,"💵 Propinas ",h('b',{style:{color:"var(--green)"}},fmtCost(r.tips)))
             )
           ))
         ),
@@ -8932,7 +9116,7 @@ function UsersPage({data,setData,toast,currentUser}){
   };
   const delWaiter=name=>{
     setData(d=>({...d,waiters:(d.waiters||[]).filter(w=>w!==name)}));
-    toast("Mozo eliminado","info");
+    toast("Mozo eliminado","info",{label:"Deshacer",onClick:()=>setData(d=>((d.waiters||[]).includes(name)?d:{...d,waiters:[...(d.waiters||[]),name]}))});
   };
 
   const openAdd=()=>{
@@ -10169,7 +10353,7 @@ function App(){
   const [stationMode,setStationMode]=useState(null);   // null | "order" | "kitchen" (kiosko)
   // Live cloud connection status for the top-bar pill: synced | syncing | offline.
   const [syncStatus,setSyncStatus]=useState(cloud&&cloud.online===false?"offline":"synced");
-  const toast=useCallback((msg,type="success")=>setToastMsg({msg,type}),[]);
+  const toast=useCallback((msg,type="success",action=null)=>setToastMsg({msg,type,action}),[]);
 
   // ── Cloud sync engine ────────────────────────────────────────────────────
   // Per-collection, so a device only ever overwrites the exact section it
@@ -10440,7 +10624,7 @@ function App(){
       h(KitchenDisplay,{data,setData,toast,locked:role==="kitchen",onExit: role==="kitchen" ? doLogout : ()=>setStationMode(null)}));
 
   const pages={
-    dashboard:h(Dashboard,{data,setPage,currentUser,onStation:setStationMode}),
+    dashboard:h(Dashboard,{data,setPage,currentUser,onStation:setStationMode,toast}),
     inventory: can(role,"editInventory")
       ? h(Inventory,{data,setData,toast,logActivity})
       : h(PermGate,{perm:"editInventory",role}),
@@ -10535,7 +10719,7 @@ function App(){
       h('div',{className:"app-content",style:{padding:"16px 20px calc(90px + env(safe-area-inset-bottom, 0px))",flex:1,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch"},key:page},pages[page]),
       // Mobile bottom nav
       h(BottomNav,{page,setPage,role}),
-      toastMsg&&h(Toast,{msg:toastMsg.msg,type:toastMsg.type,onDone:()=>setToastMsg(null)})
+      toastMsg&&h(Toast,{msg:toastMsg.msg,type:toastMsg.type,action:toastMsg.action,onDone:()=>setToastMsg(null)})
     )
   );
 }
